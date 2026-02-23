@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Portal</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="portal-container">
+        <nav class="navbar">
+            <h1>Admin Portal</h1>
+            <div class="nav-links">
+                <a href="/user/portal" class="portal-link">Go to User Portal</a>
+                <form method="POST" action="/logout" style="display: inline;">
+                    <button type="submit" class="logout-btn">Logout</button>
+                </form>
+            </div>
+        </nav>
+        
+        <div class="content">
+            <h2>Administration Dashboard</h2>
+            <p>Welcome, Administrator (ID: {{ user.student_id }})</p>
+            <p>You have access to both portals. Use the link above to visit the user portal.</p>
+            
+            <div class="admin-section">
+                <h3>Admin Functions</h3>
+                <ul>
+                    <li>Manage Users</li>
+                    <li>Manage Courses</li>
+                    <li>View All Study Sessions</li>
+                    <li>System Settings</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

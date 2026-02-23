@@ -1,0 +1,108 @@
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+import uuid
+import secrets
+from .database import get_db
+from .config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def create_refresh_token(student_id: int) -> str:
+    """Creates a refresh token. Returns the token string (UUID.secret) to be sent to client."""
+    token_secret = secrets.token_urlsafe(32)
+    token_hash = get_password_hash(token_secret)
+    expires = datetime.utcnow() + timedelta(days=7)
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO refresh_tokens (student_id, token_hash, expires_at) VALUES (%s, %s, %s) RETURNING token_id",
+                (student_id, token_hash, expires)
+            )
+            token_id = cur.fetchone()[0]
+            conn.commit()
+    
+    return f"{token_id}.{token_secret}"
+
+
+def verify_refresh_token(token: str) -> Optional[int]:
+    """Verifies a refresh token and returns student_id if valid."""
+    if not token or "." not in token:
+        return None
+    
+    try:
+        token_id_str, token_secret = token.split(".", 1)
+    except ValueError:
+        return None
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT student_id, token_hash FROM refresh_tokens WHERE token_id = %s AND expires_at > NOW()",
+                (token_id_str,)
+            )
+            result = cur.fetchone()
+            if not result:
+                return None
+            student_id, token_hash = result
+            if verify_password(token_secret, token_hash):
+                return student_id
+    return None
+
+
+def revoke_refresh_token(token: str) -> None:
+    """Revoke a refresh token by deleting it from the database."""
+    if not token or "." not in token:
+        return
+    
+    try:
+        token_id_str = token.split(".", 1)[0]
+    except ValueError:
+        return
+    
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM refresh_tokens WHERE token_id = %s", (token_id_str,))
+            conn.commit()
+
+
+def authenticate_user(first_name: str, last_name: str, password: str) -> Optional[dict]:
+    """Authenticate user by first name, last name, and password."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT s.student_id, sa.hashed_password, sa.is_admin 
+                   FROM students s 
+                   JOIN student_auth sa ON s.student_id = sa.student_id 
+                   WHERE s.first_name = %s AND s.last_name = %s""",
+                (first_name, last_name)
+            )
+            result = cur.fetchone()
+            if not result:
+                return None
+            student_id, hashed_password, is_admin = result
+            if not verify_password(password, hashed_password):
+                return None
+            return {"student_id": student_id, "is_admin": is_admin}

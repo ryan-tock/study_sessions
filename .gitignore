@@ -1,0 +1,9 @@
+venv
+__pycache__
+studysessions
+python_scripts
+.DS_Store
+package-lock.json
+enrollments.json
+node_modules
+.envrc

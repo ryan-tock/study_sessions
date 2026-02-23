@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Portal</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="portal-container">
+        <nav class="navbar">
+            <h1>User Portal</h1>
+            <div class="nav-links">
+                {% if user.is_admin %}
+                <a href="/admin/portal" class="admin-link">Go to Admin Portal</a>
+                {% endif %}
+                <form method="POST" action="/logout" style="display: inline;">
+                    <button type="submit" class="logout-btn">Logout</button>
+                </form>
+            </div>
+        </nav>
+        
+        <div class="content">
+            <h2>Welcome!</h2>
+            <p>You are logged in as User ID: {{ user.student_id }}</p>
+            
+            {% if user.is_admin %}
+            <div class="admin-badge">
+                <strong>Administrator Account</strong>
+                <p>You have access to both portals. Use the button in the navigation bar to access the admin portal.</p>
+            </div>
+            {% endif %}
+            
+            <p>This is the user portal. You can access your study sessions and courses here.</p>
+        </div>
+    </div>
+</body>
+</html>
