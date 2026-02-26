@@ -123,17 +123,16 @@ USING (
 CREATE TABLE study_sessions (
     session_id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     tutor_student_id INTEGER NOT NULL,
-    tutor_course_id INTEGER NOT NULL,
     exam_id INTEGER NOT NULL,
     session_timestamp TIMESTAMPTZ NOT NULL,
-    
-    CONSTRAINT fk_session_tutor FOREIGN KEY (tutor_student_id, tutor_course_id) 
-        REFERENCES tutors (student_id, course_id),
-        
-    CONSTRAINT fk_session_exam FOREIGN KEY (exam_id) 
+
+    CONSTRAINT fk_session_tutor FOREIGN KEY (tutor_student_id)
+        REFERENCES students (student_id),
+
+    CONSTRAINT fk_session_exam FOREIGN KEY (exam_id)
         REFERENCES exams (exam_id),
 
-    CONSTRAINT unique_tutor_exam UNIQUE (tutor_student_id, tutor_course_id, exam_id)
+    CONSTRAINT unique_tutor_exam UNIQUE (tutor_student_id, exam_id)
 );
 
 CREATE TABLE student_auth (
@@ -151,7 +150,6 @@ CREATE TABLE refresh_tokens (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash);
 CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens(expires_at);
 
 CREATE INDEX course_department ON courses (department);
