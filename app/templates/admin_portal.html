@@ -16,24 +16,107 @@
                 <form method="POST" action="/logout" style="display: inline;">
                     <button type="submit" class="logout-btn">Logout</button>
                 </form>
+                <div class="nav-avatar-wrapper">
+                    <button type="button" class="nav-avatar-btn" onclick="toggleAvatarMenu()">
+                        {% if user_profile.discord_id %}
+                        <img src="/avatar/{{ user.student_id }}" alt=""
+                             style="display: none;"
+                             onload="this.style.display='block'; this.nextElementSibling.style.display='none';"
+                             onerror="this.style.display='none';">
+                        {% endif %}
+                        <div class="nav-avatar-initials">{{ ((user_profile.first_name or '?')[0] ~ (user_profile.last_name or '')[0:1])|upper }}</div>
+                    </button>
+                    <div id="avatar-menu" class="avatar-menu hidden">
+                        {% if not user.is_root %}
+                        <a href="/user/change_password">Change Password</a>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
         </nav>
         
         <div class="content">
-            <h2>Administration Dashboard</h2>
-            <p>Welcome, Administrator (ID: {{ user.student_id }})</p>
-            <p>You have access to both portals. Use the link above to visit the user portal.</p>
-            
+            {% if message %}
+            <p class="portal-message">{{ message }}</p>
+            {% endif %}
+
             <div class="admin-section">
-                <h3>Admin Functions</h3>
-                <ul>
-                    <li>Manage Users</li>
-                    <li>Manage Courses</li>
-                    <li>View All Study Sessions</li>
-                    <li>System Settings</li>
-                </ul>
+                <h3>Manage Users</h3>
+                <table class="user-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Student ID</th>
+                            <th>Permissions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td>{{ u.first_name }} {{ u.last_name }}</td>
+                            <td>{{ u.student_id }}</td>
+                            <td class="permissions-cell">
+                                {% if u.is_root %}
+                                    <span class="badge badge-root">Root</span>
+                                {% elif u.is_admin %}
+                                    <span class="badge badge-admin">Admin</span>
+                                    <form method="POST" action="/admin/set_admin">
+                                        <input type="hidden" name="target_id" value="{{ u.student_id }}">
+                                        <input type="hidden" name="make_admin" value="false">
+                                        <button type="submit" class="btn-action btn-demote">Demote</button>
+                                    </form>
+                                {% elif u.is_admin is not none %}
+                                    <span class="badge badge-user">User</span>
+                                    <form method="POST" action="/admin/set_admin">
+                                        <input type="hidden" name="target_id" value="{{ u.student_id }}">
+                                        <input type="hidden" name="make_admin" value="true">
+                                        <button type="submit" class="btn-action btn-elevate">Make Admin</button>
+                                    </form>
+                                {% else %}
+                                    <span class="badge badge-no-auth">No Login</span>
+                                {% endif %}
+                                {% if not u.is_root %}
+                                <form method="POST" action="/admin/delete_user" onsubmit="return confirm('Delete {{ u.first_name }} {{ u.last_name }}? This cannot be undone.')">
+                                    <input type="hidden" name="target_id" value="{{ u.student_id }}">
+                                    <button type="submit" class="btn-action btn-delete">Delete</button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="admin-section">
+                <h3>Create User</h3>
+                <form method="POST" action="/admin/create_user">
+                    <div class="form-group">
+                        <label for="first_name">First Name</label>
+                        <input type="text" id="first_name" name="first_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="last_name">Last Name</label>
+                        <input type="text" id="last_name" name="last_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="discord_id">Discord ID</label>
+                        <input type="text" id="discord_id" name="discord_id" required>
+                    </div>
+                    <button type="submit">Create User</button>
+                </form>
             </div>
         </div>
     </div>
+    <script>
+        window.toggleAvatarMenu = function() {
+            document.getElementById('avatar-menu').classList.toggle('hidden');
+        };
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.nav-avatar-wrapper')) {
+                document.getElementById('avatar-menu').classList.add('hidden');
+            }
+        });
+    </script>
 </body>
 </html>

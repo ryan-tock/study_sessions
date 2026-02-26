@@ -3,8 +3,11 @@ set -e
 DB_TO_DROP="study_sessions"
 DB_TO_CREATE="study_sessions"
 DB_USER="app_user"
-DB_PASS=$(openssl rand -base64 24)
+DB_PASS=$(openssl rand -hex 24)
 DB_DEV_USER="ryan"
+
+echo "Removing cached avatars"
+rm -rf "$(dirname "$0")/app/static/avatars"
 
 echo "Dropping and remaking database"
 sudo -u "$DB_DEV_USER" dropdb --if-exists "$DB_TO_DROP"
@@ -37,24 +40,24 @@ try:
     
     cur.execute(
         "INSERT INTO students (first_name, last_name, sharing) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING student_id",
-        ('Admin', 'User', 'closed')
+        ('root', '', 'closed')
     )
     result = cur.fetchone()
-    
+
     if result:
         student_id = result[0]
-        print(f"Created admin student with ID: {student_id}")
+        print(f"Created root student with ID: {student_id}")
     else:
-        cur.execute("SELECT student_id FROM students WHERE first_name = %s AND last_name = %s", ('Admin', 'User'))
+        cur.execute("SELECT student_id FROM students WHERE first_name = %s AND last_name = %s", ('root', ''))
         student_id = cur.fetchone()[0]
-        print(f"Using existing admin student ID: {student_id}")
+        print(f"Using existing root student ID: {student_id}")
     
     cur.execute(
-        """INSERT INTO student_auth (student_id, hashed_password, is_admin) 
-           VALUES (%s, %s, %s) 
-           ON CONFLICT (student_id) 
-           DO UPDATE SET hashed_password = %s, is_admin = %s""",
-        (student_id, hashed, True, hashed, True)
+        """INSERT INTO student_auth (student_id, hashed_password, is_admin, is_root)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (student_id)
+           DO UPDATE SET hashed_password = %s, is_admin = %s, is_root = %s""",
+        (student_id, hashed, True, True, hashed, True, True)
     )
     
     conn.commit()

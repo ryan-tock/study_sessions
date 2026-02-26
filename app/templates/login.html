@@ -11,21 +11,149 @@
     <div class="login-container">
         <h1>Study Sessions</h1>
         <h2>Login</h2>
-        <form method="POST" action="/login">
-            <div class="form-group">
-                <label for="first_name">First Name:</label>
-                <input type="text" id="first_name" name="first_name" required autocomplete="given-name">
+
+        <div id="user-select-section">
+            <div class="form-group name-search-group">
+                <label for="name-search">Name</label>
+                <input type="text" id="name-search" autocomplete="off" placeholder="Start typing your name...">
+                <div id="search-dropdown" class="search-dropdown hidden"></div>
             </div>
-            <div class="form-group">
-                <label for="last_name">Last Name:</label>
-                <input type="text" id="last_name" name="last_name" required autocomplete="family-name">
+        </div>
+
+        <div id="selected-section" class="hidden">
+            <div class="selected-user-card">
+                <img id="avatar-img" src="" alt="" class="avatar hidden">
+                <div class="avatar-placeholder hidden" id="avatar-placeholder"></div>
+                <div class="selected-user-info">
+                    <span id="selected-name"></span>
+                    <button type="button" id="change-user-btn" class="change-btn">Not you?</button>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="password">Password:</label>
-                <input type="password" id="password" name="password" required autocomplete="current-password">
-            </div>
-            <button type="submit">Login</button>
-        </form>
+            <form method="POST" action="/login">
+                <input type="hidden" id="first_name" name="first_name">
+                <input type="hidden" id="last_name" name="last_name">
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <div class="password-field">
+                        <input type="password" id="password" name="password" required autocomplete="current-password">
+                        <button type="button" class="password-toggle" onclick="togglePass('password', this)">Show</button>
+                    </div>
+                </div>
+                <button type="submit">Login</button>
+            </form>
+        </div>
+
+        <details class="root-login">
+            <summary>Root Login</summary>
+            <form method="POST" action="/root_login">
+                <div class="form-group">
+                    <label for="root_password">Password:</label>
+                    <input type="password" id="root_password" name="password" required autocomplete="current-password">
+                </div>
+                <button type="submit">Login as Root</button>
+            </form>
+        </details>
     </div>
+
+    <script>
+        let debounceTimer;
+
+        const searchInput = document.getElementById('name-search');
+        const dropdown = document.getElementById('search-dropdown');
+        const userSelectSection = document.getElementById('user-select-section');
+        const selectedSection = document.getElementById('selected-section');
+
+        searchInput.addEventListener('input', function () {
+            clearTimeout(debounceTimer);
+            const q = this.value.trim();
+            if (q.length < 2) { hideDropdown(); return; }
+            debounceTimer = setTimeout(() => fetchUsers(q), 200);
+        });
+
+        searchInput.addEventListener('keydown', function (e) {
+            const items = dropdown.querySelectorAll('.search-item');
+            const active = dropdown.querySelector('.search-item.active');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const next = active ? active.nextElementSibling : items[0];
+                if (next) { active?.classList.remove('active'); next.classList.add('active'); }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prev = active ? active.previousElementSibling : items[items.length - 1];
+                if (prev) { active?.classList.remove('active'); prev.classList.add('active'); }
+            } else if (e.key === 'Enter' && active) {
+                e.preventDefault();
+                active.click();
+            } else if (e.key === 'Escape') {
+                hideDropdown();
+            }
+        });
+
+        async function fetchUsers(q) {
+            const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+            const users = await res.json();
+            showDropdown(users);
+        }
+
+        function showDropdown(users) {
+            dropdown.innerHTML = '';
+            if (users.length === 0) { hideDropdown(); return; }
+            users.forEach(user => {
+                const item = document.createElement('div');
+                item.className = 'search-item';
+                item.textContent = `${user.first_name} ${user.last_name}`;
+                item.addEventListener('click', () => selectUser(user));
+                dropdown.appendChild(item);
+            });
+            dropdown.classList.remove('hidden');
+        }
+
+        function hideDropdown() {
+            dropdown.classList.add('hidden');
+            dropdown.innerHTML = '';
+        }
+
+        function selectUser(user) {
+            document.getElementById('first_name').value = user.first_name;
+            document.getElementById('last_name').value = user.last_name;
+            document.getElementById('selected-name').textContent = `${user.first_name} ${user.last_name}`;
+
+            const avatarImg = document.getElementById('avatar-img');
+            const placeholder = document.getElementById('avatar-placeholder');
+            avatarImg.classList.add('hidden');
+            placeholder.classList.add('hidden');
+
+            avatarImg.onload = () => { avatarImg.classList.remove('hidden'); };
+            avatarImg.onerror = () => { avatarImg.classList.add('hidden'); showInitialsPlaceholder(user, placeholder); };
+            avatarImg.src = '/avatar/' + user.student_id;
+
+            userSelectSection.classList.add('hidden');
+            selectedSection.classList.remove('hidden');
+            hideDropdown();
+            document.getElementById('password').focus();
+        }
+
+        function showInitialsPlaceholder(user, el) {
+            el.textContent = (user.first_name[0] + (user.last_name[0] || '')).toUpperCase();
+            el.classList.remove('hidden');
+        }
+
+        document.getElementById('change-user-btn').addEventListener('click', function () {
+            selectedSection.classList.add('hidden');
+            userSelectSection.classList.remove('hidden');
+            searchInput.value = '';
+            searchInput.focus();
+        });
+
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('#user-select-section')) hideDropdown();
+        });
+
+        function togglePass(id, btn) {
+            const input = document.getElementById(id);
+            input.type = input.type === 'password' ? 'text' : 'password';
+            btn.textContent = input.type === 'password' ? 'Show' : 'Hide';
+        }
+    </script>
 </body>
 </html>

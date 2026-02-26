@@ -88,21 +88,35 @@ def revoke_refresh_token(token: str) -> None:
             conn.commit()
 
 
+def authenticate_root_user(password: str) -> Optional[dict]:
+    """Authenticate a root user by password alone."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT student_id, hashed_password FROM student_auth WHERE is_root = TRUE")
+            for student_id, hashed_password in cur.fetchall():
+                if verify_password(password, hashed_password):
+                    return {"student_id": student_id, "is_admin": True, "is_root": True}
+    return None
+
+
 def authenticate_user(first_name: str, last_name: str, password: str) -> Optional[dict]:
     """Authenticate user by first name, last name, and password."""
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT s.student_id, sa.hashed_password, sa.is_admin 
-                   FROM students s 
-                   JOIN student_auth sa ON s.student_id = sa.student_id 
+                """SELECT s.student_id, sa.hashed_password, sa.is_admin, sa.is_root, sa.last_login
+                   FROM students s
+                   JOIN student_auth sa ON s.student_id = sa.student_id
                    WHERE s.first_name = %s AND s.last_name = %s""",
                 (first_name, last_name)
             )
             result = cur.fetchone()
             if not result:
                 return None
-            student_id, hashed_password, is_admin = result
+            student_id, hashed_password, is_admin, is_root, last_login = result
             if not verify_password(password, hashed_password):
                 return None
-            return {"student_id": student_id, "is_admin": is_admin}
+            is_first_login = last_login is None
+            cur.execute("UPDATE student_auth SET last_login = NOW() WHERE student_id = %s", (student_id,))
+            conn.commit()
+            return {"student_id": student_id, "is_admin": is_admin, "is_root": is_root, "is_first_login": is_first_login}

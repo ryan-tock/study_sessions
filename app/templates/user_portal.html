@@ -18,22 +18,41 @@
                 <form method="POST" action="/logout" style="display: inline;">
                     <button type="submit" class="logout-btn">Logout</button>
                 </form>
+                <div class="nav-avatar-wrapper">
+                    <button type="button" class="nav-avatar-btn" onclick="toggleAvatarMenu()">
+                        {% if user_profile.discord_id %}
+                        <img src="/avatar/{{ user.student_id }}" alt=""
+                             style="display: none;"
+                             onload="this.style.display='block'; this.nextElementSibling.style.display='none';"
+                             onerror="this.style.display='none';">
+                        {% endif %}
+                        <div class="nav-avatar-initials">{{ ((user_profile.first_name or '?')[0] ~ (user_profile.last_name or '')[0:1])|upper }}</div>
+                    </button>
+                    <div id="avatar-menu" class="avatar-menu hidden">
+                        {% if not user.is_root %}
+                        <a href="/user/change_password">Change Password</a>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
         </nav>
-        
+
         <div class="content">
-            <h2>Welcome!</h2>
-            <p>You are logged in as User ID: {{ user.student_id }}</p>
-            
-            {% if user.is_admin %}
-            <div class="admin-badge">
-                <strong>Administrator Account</strong>
-                <p>You have access to both portals. Use the button in the navigation bar to access the admin portal.</p>
-            </div>
+            {% if message %}
+            <p class="portal-message">{{ message }}</p>
             {% endif %}
-            
-            <p>This is the user portal. You can access your study sessions and courses here.</p>
         </div>
     </div>
+
+    <script>
+        window.toggleAvatarMenu = function() {
+            document.getElementById('avatar-menu').classList.toggle('hidden');
+        };
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.nav-avatar-wrapper')) {
+                document.getElementById('avatar-menu').classList.add('hidden');
+            }
+        });
+    </script>
 </body>
 </html>

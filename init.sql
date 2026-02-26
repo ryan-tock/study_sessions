@@ -45,7 +45,8 @@ CREATE TABLE students (
     first_name TEXT,
     last_name TEXT,
     sharing sharing_setting NOT NULL DEFAULT 'open',
-    graduated_date DATE  -- Null for undergraduate
+    graduated_date DATE,  -- Null for undergraduate
+    avatar_checked_at TIMESTAMPTZ
 );
 
 CREATE VIEW student_overviews AS SELECT student_id, first_name, last_name, graduated_date FROM students;
@@ -139,6 +140,7 @@ CREATE TABLE student_auth (
     student_id INTEGER PRIMARY KEY REFERENCES students(student_id) ON DELETE CASCADE,
     hashed_password TEXT NOT NULL,
     is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    is_root BOOLEAN NOT NULL DEFAULT FALSE,
     last_login TIMESTAMPTZ
 );
 
