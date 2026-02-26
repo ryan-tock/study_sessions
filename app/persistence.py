@@ -55,6 +55,19 @@ def backup(academic_year: int, season: str) -> None:
         json.dump(users, f, indent=2)
 
 
+def wipe_backup(wipe_term: bool = True, wipe_users: bool = True) -> None:
+    """Delete selected backup files from the data dir. Never touches other files in /data."""
+    if wipe_term:
+        cterm_path = os.path.join(DATA_DIR, 'current_term.json')
+        if os.path.exists(cterm_path):
+            os.remove(cterm_path)
+    if wipe_users and os.path.isdir(DATA_DIR):
+        for entry in os.listdir(DATA_DIR):
+            users_file = os.path.join(DATA_DIR, entry, 'users.json')
+            if os.path.isfile(users_file):
+                os.remove(users_file)
+
+
 def restore_from_disk(user: dict) -> bool:
     """
     Restore current term and users from the most recent backup.

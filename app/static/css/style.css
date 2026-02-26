@@ -145,6 +145,14 @@ button:hover {
     background-color: #545b62;
 }
 
+.backup-btn-danger {
+    background-color: #c0392b;
+}
+
+.backup-btn-danger:hover {
+    background-color: #a93226;
+}
+
 .logout-btn {
     width: auto;
     padding: 8px 20px;
@@ -674,6 +682,136 @@ select:focus,
 input[type="number"]:focus {
     outline: none;
     border-color: #3498db;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Requirement states for create user form */
+.password-requirements li.checking {
+    color: #856404;
+}
+
+.password-requirements li.no-token {
+    color: #856404;
+}
+
+.password-requirements li.no-token::before {
+    content: '⚠';
+}
+
+.req-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: req-spin 0.7s linear infinite;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+@keyframes req-spin {
+    to { transform: rotate(360deg); }
+}
+
+#discord-preview {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0 12px;
+}
+
+#discord-preview img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+#discord-preview span {
+    font-size: 14px;
+    color: #555;
+}
+
+/* Wipe backup popup panel */
+.navbar-wrapper {
+    position: relative;
+}
+
+.wipe-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 199;
+}
+
+.wipe-backdrop.hidden {
+    display: none;
+}
+
+.wipe-panel {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 200;
+    background: white;
+    border: 2px solid #e74c3c;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+    padding: 28px 32px;
+    min-width: 360px;
+}
+
+.wipe-panel.hidden {
+    display: none;
+}
+
+.wipe-panel-title {
+    font-weight: 600;
+    color: #c0392b;
+    margin: 0 0 18px 0;
+    font-size: 17px;
+}
+
+.wipe-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.wipe-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #555;
+    cursor: pointer;
+}
+
+.wipe-option input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.wipe-option code {
+    font-size: 12px;
+    background: #f0f0f0;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.wipe-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
 /* Side-by-side admin sections */

@@ -13,7 +13,7 @@ from .auth import (
 )
 from .config import SECRET_KEY, ALGORITHM, DISCORD_BOT_TOKEN, USER_PASSWORD
 from .database import get_db, get_db_for_user
-from .persistence import backup, restore_from_disk
+from .persistence import backup, restore_from_disk, wipe_backup
 from typing import Optional
 import urllib.request
 import urllib.error
@@ -21,6 +21,7 @@ import ssl
 import certifi
 import json
 import re
+import unicodedata
 from collections import defaultdict
 from urllib.parse import urlencode
 
@@ -28,6 +29,17 @@ from urllib.parse import urlencode
 _RATE_LIMIT_WINDOW = timedelta(minutes=1)
 _RATE_LIMIT_MAX = 5
 _failed_login_attempts: dict[str, list[datetime]] = defaultdict(list)
+
+
+_ALLOWED_NAME_EXTRAS = set(" -'.\u2018\u2019")
+
+
+def validate_name(name: str) -> bool:
+    """Allow Unicode letters, combining marks, spaces, hyphens, apostrophes, and periods."""
+    return bool(name.strip()) and all(
+        unicodedata.category(c).startswith(('L', 'M')) or c in _ALLOWED_NAME_EXTRAS
+        for c in name
+    )
 
 
 def validate_password(password: str) -> Optional[str]:
@@ -69,6 +81,36 @@ app = FastAPI(lifespan=lifespan)
 # Setup templates and static files with absolute paths
 templates = Jinja2Templates(directory=os.path.join(current_dir, "templates"))
 app.mount("/static", StaticFiles(directory=os.path.join(current_dir, "static")), name="static")
+
+
+def validate_discord_id(discord_id: str) -> tuple[bool, str]:
+    """
+    Validate a Discord ID via the bot token.
+    Returns (is_valid, error_message). Skips validation if no bot token is configured.
+    """
+    token = (DISCORD_BOT_TOKEN or "").strip()
+    if not token:
+        return True, ""
+    try:
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        req = urllib.request.Request(
+            f"https://discord.com/api/v10/users/{discord_id}",
+            headers={
+                "Authorization": f"Bot {token}",
+                "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 10)",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+            data = json.loads(resp.read())
+        if not data.get("avatar"):
+            return False, "That Discord account has no profile picture"
+        return True, ""
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False, "Discord user not found"
+        return False, "Could not verify Discord ID"
+    except Exception:
+        return False, "Could not verify Discord ID"
 
 
 def download_and_cache_avatar(student_id: int, discord_id: str) -> None:
@@ -614,6 +656,55 @@ async def backup_db(user: dict = Depends(require_admin)):
     )
 
 
+@app.post("/admin/wipe_backup", response_class=HTMLResponse)
+async def wipe_backup_files(
+    user: dict = Depends(require_admin),
+    wipe_term: Optional[str] = Form(None),
+    wipe_users: Optional[str] = Form(None),
+):
+    """Wipe selected backup files. Root only."""
+    if not user.get("is_root"):
+        return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
+    wipe_backup(wipe_term=wipe_term == "true", wipe_users=wipe_users == "true")
+    return RedirectResponse(url="/admin/portal?message=Selected+backup+files+wiped", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/admin/api/validate_discord/{discord_id}")
+def validate_discord_endpoint(discord_id: str, _: dict = Depends(require_admin)):
+    """Validate a Discord ID and return user info for the create-user form preview."""
+    token = (DISCORD_BOT_TOKEN or "").strip()
+    if not token:
+        return {"status": "no_token"}
+    if not discord_id.isdigit():
+        return {"status": "invalid", "error": "Discord ID must be numeric"}
+    try:
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        req = urllib.request.Request(
+            f"https://discord.com/api/v10/users/{discord_id}",
+            headers={
+                "Authorization": f"Bot {token}",
+                "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 10)",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+            data = json.loads(resp.read())
+        avatar_hash = data.get("avatar")
+        if not avatar_hash:
+            return {"status": "invalid", "error": "That Discord account has no profile picture"}
+        avatar_url = f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar_hash}.png?size=128"
+        return {
+            "status": "valid",
+            "avatar_url": avatar_url,
+            "username": data.get("global_name") or data.get("username", ""),
+        }
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"status": "invalid", "error": "Discord user not found"}
+        return {"status": "invalid", "error": "Could not verify Discord ID"}
+    except Exception:
+        return {"status": "invalid", "error": "Could not verify Discord ID"}
+
+
 @app.post("/admin/create_user", response_class=HTMLResponse)
 async def create_user(
     background_tasks: BackgroundTasks,
@@ -623,6 +714,15 @@ async def create_user(
     discord_id: str = Form(...)
 ):
     """Create a new student user."""
+    if not validate_name(first_name):
+        return RedirectResponse(url="/admin/portal?message=First+name+contains+invalid+characters", status_code=status.HTTP_302_FOUND)
+    if not validate_name(last_name):
+        return RedirectResponse(url="/admin/portal?message=Last+name+contains+invalid+characters", status_code=status.HTTP_302_FOUND)
+    if not discord_id.isdigit():
+        return RedirectResponse(url="/admin/portal?message=Discord+ID+must+be+numeric", status_code=status.HTTP_302_FOUND)
+    is_valid, err = validate_discord_id(discord_id)
+    if not is_valid:
+        return RedirectResponse(url="/admin/portal?" + urlencode({"message": err}), status_code=status.HTTP_302_FOUND)
     with get_db_for_user(user) as conn:
         with conn.cursor() as cur:
             cur.execute(

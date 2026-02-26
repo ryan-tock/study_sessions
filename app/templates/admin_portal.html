@@ -9,41 +9,67 @@
 </head>
 <body>
     <div class="portal-container">
-        <nav class="navbar">
-            <h1>Admin Portal</h1>
-            <div class="nav-links">
-                {% if not user.is_root %}
-                <a href="/user/portal" class="portal-link">Go to User Portal</a>
-                {% endif %}
-                {% if user.is_root %}
-                <form method="POST" action="/admin/restore_backup" style="display: inline;" onsubmit="return confirm('Restore from backup? This will overwrite current users and term with the last backup.')">
-                    <button type="submit" class="backup-btn">Restore Backup</button>
-                </form>
-                <form method="POST" action="/admin/backup" style="display: inline;">
-                    <button type="submit" class="backup-btn">Backup DB</button>
-                </form>
-                {% endif %}
-                <form method="POST" action="/logout" style="display: inline;">
-                    <button type="submit" class="logout-btn">Logout</button>
-                </form>
-                <div class="nav-avatar-wrapper">
-                    <button type="button" class="nav-avatar-btn" onclick="toggleAvatarMenu()">
-                        {% if user_profile.discord_id %}
-                        <img src="/avatar/{{ user.student_id }}" alt=""
-                             style="display: none;"
-                             onload="this.style.display='block'; this.nextElementSibling.style.display='none';"
-                             onerror="this.style.display='none';">
-                        {% endif %}
-                        <div class="nav-avatar-initials">{{ ((user_profile.first_name or '?')[0] ~ (user_profile.last_name or '')[0:1])|upper }}</div>
-                    </button>
-                    <div id="avatar-menu" class="avatar-menu hidden">
-                        {% if not user.is_root %}
-                        <a href="/user/change_password">Change Password</a>
-                        {% endif %}
+        <div class="navbar-wrapper">
+            <nav class="navbar">
+                <h1>Admin Portal</h1>
+                <div class="nav-links">
+                    {% if not user.is_root %}
+                    <a href="/user/portal" class="portal-link">Go to User Portal</a>
+                    {% endif %}
+                    {% if user.is_root %}
+                    <form method="POST" action="/admin/restore_backup" style="display: inline;" onsubmit="return confirm('Restore from backup? This will overwrite current users and term with the last backup.')">
+                        <button type="submit" class="backup-btn">Restore Backup</button>
+                    </form>
+                    <form method="POST" action="/admin/backup" style="display: inline;">
+                        <button type="submit" class="backup-btn">Backup DB</button>
+                    </form>
+                    <button type="button" class="backup-btn backup-btn-danger" onclick="toggleWipePanel()">Wipe Backup</button>
+                    {% endif %}
+                    <form method="POST" action="/logout" style="display: inline;">
+                        <button type="submit" class="logout-btn">Logout</button>
+                    </form>
+                    <div class="nav-avatar-wrapper">
+                        <button type="button" class="nav-avatar-btn" onclick="toggleAvatarMenu()">
+                            {% if user_profile.discord_id %}
+                            <img src="/avatar/{{ user.student_id }}" alt=""
+                                 style="display: none;"
+                                 onload="this.style.display='block'; this.nextElementSibling.style.display='none';"
+                                 onerror="this.style.display='none';">
+                            {% endif %}
+                            <div class="nav-avatar-initials">{{ ((user_profile.first_name or '?')[0] ~ (user_profile.last_name or '')[0:1])|upper }}</div>
+                        </button>
+                        <div id="avatar-menu" class="avatar-menu hidden">
+                            {% if not user.is_root %}
+                            <a href="/user/change_password">Change Password</a>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
+            </nav>
+
+            {% if user.is_root %}
+            <div id="wipe-backdrop" class="wipe-backdrop hidden" onclick="toggleWipePanel()"></div>
+            <div id="wipe-panel" class="wipe-panel hidden">
+                <p class="wipe-panel-title">Wipe Backup Files</p>
+                <form method="POST" action="/admin/wipe_backup" id="wipe-form">
+                    <div class="wipe-checkboxes">
+                        <label class="wipe-option">
+                            <input type="checkbox" name="wipe_term" value="true" id="wipe-term-cb">
+                            <span>Current term <code>current_term.json</code></span>
+                        </label>
+                        <label class="wipe-option">
+                            <input type="checkbox" name="wipe_users" value="true" id="wipe-users-cb">
+                            <span>User account backups <code>*/users.json</code></span>
+                        </label>
+                    </div>
+                    <div class="wipe-actions">
+                        <button type="submit" id="wipe-btn" class="btn-action btn-delete" disabled>Wipe Selected</button>
+                        <button type="button" class="btn-action" onclick="toggleWipePanel()">Cancel</button>
+                    </div>
+                </form>
             </div>
-        </nav>
+            {% endif %}
+        </div>
 
         <div class="content">
             {% if message %}
@@ -68,7 +94,7 @@
                                 <option value="fall" {% if current_term and current_term.season == 'fall' %}selected{% endif %}>Fall</option>
                             </select>
                         </div>
-                        <button type="submit">Set Term</button>
+                        <button type="submit" id="set-term-btn" disabled>Set Term</button>
                     </form>
                 </div>
 
@@ -85,9 +111,19 @@
                         </div>
                         <div class="form-group">
                             <label for="discord_id">Discord ID</label>
-                            <input type="text" id="discord_id" name="discord_id" required>
+                            <input type="text" id="discord_id" name="discord_id" required pattern="[0-9]+" title="Discord ID must be numeric">
                         </div>
-                        <button type="submit">Create User</button>
+                        <ul class="password-requirements">
+                            <li id="req-firstname">First name (letters, hyphens, apostrophes, periods only)</li>
+                            <li id="req-lastname">Last name (letters, hyphens, apostrophes, periods only)</li>
+                            <li id="req-discord-numeric">Discord ID must be numeric</li>
+                            <li id="req-discord-valid"><span id="req-discord-text">Valid Discord account with profile picture</span><span id="req-discord-spinner" class="req-spinner hidden"></span></li>
+                        </ul>
+                        <div id="discord-preview" class="hidden">
+                            <img id="discord-preview-img" src="" alt="">
+                            <span id="discord-preview-name"></span>
+                        </div>
+                        <button type="submit" id="create-user-btn" disabled>Create User</button>
                     </form>
                 </div>
             </div>
@@ -193,6 +229,146 @@
         };
 
         applyGraduateFilter();
+
+        // ===== Set Term validation =====
+        const yearInput = document.getElementById('academic_year');
+        const setTermBtn = document.getElementById('set-term-btn');
+        function updateTermBtn() {
+            const year = parseInt(yearInput.value, 10);
+            setTermBtn.disabled = !(year >= 2000 && year <= 2100);
+        }
+        yearInput.addEventListener('input', updateTermBtn);
+        updateTermBtn();
+
+        // ===== Create User validation =====
+        const firstNameInput = document.getElementById('first_name');
+        const lastNameInput = document.getElementById('last_name');
+        const discordInput = document.getElementById('discord_id');
+        const createBtn = document.getElementById('create-user-btn');
+        let discordState = 'idle';
+        let discordTimer = null;
+        const NAME_PATTERN = /^[\p{L}\p{M} '\-.]+$/u;
+
+        function setReqClass(id, cls) {
+            const el = document.getElementById(id);
+            el.classList.remove('met', 'unmet', 'checking', 'no-token');
+            if (cls) el.classList.add(cls);
+        }
+
+        function updateCreateBtn() {
+            const firstName = firstNameInput.value.trim();
+            const lastName = lastNameInput.value.trim();
+            const discord = discordInput.value.trim();
+            const numericOk = /^\d+$/.test(discord);
+            const firstNameOk = firstName && NAME_PATTERN.test(firstName);
+            const lastNameOk = lastName && NAME_PATTERN.test(lastName);
+            if (!firstName) setReqClass('req-firstname', null);
+            else setReqClass('req-firstname', firstNameOk ? 'met' : 'unmet');
+            if (!lastName) setReqClass('req-lastname', null);
+            else setReqClass('req-lastname', lastNameOk ? 'met' : 'unmet');
+            if (!discord) setReqClass('req-discord-numeric', null);
+            else setReqClass('req-discord-numeric', numericOk ? 'met' : 'unmet');
+            const discordOk = discordState === 'valid' || discordState === 'no-token';
+            createBtn.disabled = !(firstNameOk && lastNameOk && numericOk && discordOk);
+        }
+
+        function hideDiscordPreview() {
+            document.getElementById('discord-preview').classList.add('hidden');
+        }
+
+        function showDiscordPreview(avatarUrl, username) {
+            document.getElementById('discord-preview-img').src = avatarUrl;
+            document.getElementById('discord-preview-name').textContent = username;
+            document.getElementById('discord-preview').classList.remove('hidden');
+        }
+
+        function onDiscordInput() {
+            const val = discordInput.value.trim();
+            clearTimeout(discordTimer);
+            hideDiscordPreview();
+            if (!val || !/^\d+$/.test(val)) {
+                discordState = 'idle';
+                setReqClass('req-discord-valid', null);
+                document.getElementById('req-discord-text').textContent = 'Valid Discord account with profile picture';
+                document.getElementById('req-discord-spinner').classList.add('hidden');
+            } else {
+                discordState = 'checking';
+                setReqClass('req-discord-valid', 'checking');
+                document.getElementById('req-discord-text').textContent = 'Checking Discord account...';
+                document.getElementById('req-discord-spinner').classList.remove('hidden');
+                discordTimer = setTimeout(function() { doDiscordCheck(val); }, 1000);
+            }
+            updateCreateBtn();
+        }
+
+        async function doDiscordCheck(discordId) {
+            try {
+                const res = await fetch('/admin/api/validate_discord/' + discordId);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                document.getElementById('req-discord-spinner').classList.add('hidden');
+                if (data.status === 'valid') {
+                    discordState = 'valid';
+                    setReqClass('req-discord-valid', 'met');
+                    document.getElementById('req-discord-text').textContent = 'Valid Discord account with profile picture';
+                    showDiscordPreview(data.avatar_url, data.username);
+                } else if (data.status === 'no_token') {
+                    discordState = 'no-token';
+                    setReqClass('req-discord-valid', 'no-token');
+                    document.getElementById('req-discord-text').textContent = 'Cannot verify (no bot token configured)';
+                } else {
+                    discordState = 'invalid';
+                    setReqClass('req-discord-valid', 'unmet');
+                    document.getElementById('req-discord-text').textContent = data.error || 'Invalid Discord account';
+                }
+            } catch (e) {
+                document.getElementById('req-discord-spinner').classList.add('hidden');
+                discordState = 'invalid';
+                setReqClass('req-discord-valid', 'unmet');
+                document.getElementById('req-discord-text').textContent = 'Could not verify Discord ID';
+            }
+            updateCreateBtn();
+        }
+
+        firstNameInput.addEventListener('input', updateCreateBtn);
+        lastNameInput.addEventListener('input', updateCreateBtn);
+        discordInput.addEventListener('input', onDiscordInput);
+
+        // ===== Wipe backup =====
+        const wipePanel = document.getElementById('wipe-panel');
+        const wipeTermCb = document.getElementById('wipe-term-cb');
+        const wipeUsersCb = document.getElementById('wipe-users-cb');
+        const wipeBtn = document.getElementById('wipe-btn');
+
+        const wipeBackdrop = document.getElementById('wipe-backdrop');
+
+        window.toggleWipePanel = function() {
+            if (!wipePanel) return;
+            const opening = wipePanel.classList.contains('hidden');
+            wipePanel.classList.toggle('hidden');
+            if (wipeBackdrop) wipeBackdrop.classList.toggle('hidden');
+            if (opening) {
+                if (wipeTermCb) wipeTermCb.checked = false;
+                if (wipeUsersCb) wipeUsersCb.checked = false;
+                if (wipeBtn) wipeBtn.disabled = true;
+            }
+        };
+
+        if (wipeTermCb && wipeUsersCb && wipeBtn) {
+            function updateWipeBtn() {
+                wipeBtn.disabled = !wipeTermCb.checked && !wipeUsersCb.checked;
+            }
+            wipeTermCb.addEventListener('change', updateWipeBtn);
+            wipeUsersCb.addEventListener('change', updateWipeBtn);
+            document.getElementById('wipe-form').addEventListener('submit', function(e) {
+                const parts = [];
+                if (wipeTermCb.checked) parts.push('current term');
+                if (wipeUsersCb.checked) parts.push('user account backups');
+                if (!confirm('Wipe ' + parts.join(' and ') + '? Other files in /data will not be touched.')) {
+                    e.preventDefault();
+                }
+            });
+        }
 
         // Intercept graduate toggle forms to avoid page reload
         document.querySelectorAll('form[action="/admin/set_graduated"]').forEach(function(form) {
