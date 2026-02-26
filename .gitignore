@@ -8,3 +8,4 @@ enrollments.json
 node_modules
 .envrc
 avatars
+users.json

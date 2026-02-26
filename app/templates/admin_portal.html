@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Portal</title>
+    <title>Study Sessions</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
@@ -12,7 +12,17 @@
         <nav class="navbar">
             <h1>Admin Portal</h1>
             <div class="nav-links">
+                {% if not user.is_root %}
                 <a href="/user/portal" class="portal-link">Go to User Portal</a>
+                {% endif %}
+                {% if user.is_root %}
+                <form method="POST" action="/admin/restore_backup" style="display: inline;" onsubmit="return confirm('Restore from backup? This will overwrite current users and term with the last backup.')">
+                    <button type="submit" class="backup-btn">Restore Backup</button>
+                </form>
+                <form method="POST" action="/admin/backup" style="display: inline;">
+                    <button type="submit" class="backup-btn">Backup DB</button>
+                </form>
+                {% endif %}
                 <form method="POST" action="/logout" style="display: inline;">
                     <button type="submit" class="logout-btn">Logout</button>
                 </form>
@@ -34,47 +44,113 @@
                 </div>
             </div>
         </nav>
-        
+
         <div class="content">
             {% if message %}
             <p class="portal-message">{{ message }}</p>
             {% endif %}
 
+            <div class="admin-sections-row">
+                <div class="admin-section">
+                    <h3>Current Term</h3>
+                    <form method="POST" action="/admin/set_term">
+                        <div class="form-group">
+                            <label for="academic_year">Academic Year</label>
+                            <input type="number" id="academic_year" name="academic_year"
+                                   value="{{ current_term.academic_year if current_term else '' }}"
+                                   min="2000" max="2100" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="season">Season</label>
+                            <select id="season" name="season" required>
+                                <option value="spring" {% if current_term and current_term.season == 'spring' %}selected{% endif %}>Spring</option>
+                                <option value="summer" {% if current_term and current_term.season == 'summer' %}selected{% endif %}>Summer</option>
+                                <option value="fall" {% if current_term and current_term.season == 'fall' %}selected{% endif %}>Fall</option>
+                            </select>
+                        </div>
+                        <button type="submit">Set Term</button>
+                    </form>
+                </div>
+
+                <div class="admin-section">
+                    <h3>Create User</h3>
+                    <form method="POST" action="/admin/create_user">
+                        <div class="form-group">
+                            <label for="first_name">First Name</label>
+                            <input type="text" id="first_name" name="first_name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="last_name">Last Name</label>
+                            <input type="text" id="last_name" name="last_name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="discord_id">Discord ID</label>
+                            <input type="text" id="discord_id" name="discord_id" required>
+                        </div>
+                        <button type="submit">Create User</button>
+                    </form>
+                </div>
+            </div>
+
             <div class="admin-section">
                 <h3>Manage Users</h3>
+                <button type="button" id="toggle-graduates-btn" class="btn-action btn-elevate" onclick="toggleGraduates()">Show Graduates</button>
                 <table class="user-table">
                     <thead>
                         <tr>
                             <th>Name</th>
                             <th>Student ID</th>
-                            <th>Permissions</th>
+                            <th>Role</th>
+                            <th></th>
+                            <th></th>
+                            <th></th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="user-table-body">
                         {% for u in users %}
-                        <tr>
+                        <tr data-graduated="{{ 'true' if u.graduated_date else 'false' }}">
                             <td>{{ u.first_name }} {{ u.last_name }}</td>
                             <td>{{ u.student_id }}</td>
-                            <td class="permissions-cell">
+                            <td>
                                 {% if u.is_root %}
                                     <span class="badge badge-root">Root</span>
                                 {% elif u.is_admin %}
                                     <span class="badge badge-admin">Admin</span>
-                                    <form method="POST" action="/admin/set_admin">
+                                {% elif u.is_admin is not none %}
+                                    <span class="badge badge-user">User</span>
+                                {% else %}
+                                    <span class="badge badge-no-auth">No Login</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if u.is_admin and not u.is_root %}
+                                    <form method="POST" action="/admin/set_admin"
+                                          onsubmit="return confirm('Demote {{ u.first_name }} {{ u.last_name }}?\n\nNote: they will retain admin access for up to 30 minutes until their session expires.')">
                                         <input type="hidden" name="target_id" value="{{ u.student_id }}">
                                         <input type="hidden" name="make_admin" value="false">
                                         <button type="submit" class="btn-action btn-demote">Demote</button>
                                     </form>
-                                {% elif u.is_admin is not none %}
-                                    <span class="badge badge-user">User</span>
-                                    <form method="POST" action="/admin/set_admin">
+                                {% elif u.is_admin is not none and not u.is_root %}
+                                    <form method="POST" action="/admin/set_admin"
+                                          onsubmit="return confirm('Make {{ u.first_name }} {{ u.last_name }} an admin?\n\nNote: they may need to log out and back in for changes to take effect.')">
                                         <input type="hidden" name="target_id" value="{{ u.student_id }}">
                                         <input type="hidden" name="make_admin" value="true">
                                         <button type="submit" class="btn-action btn-elevate">Make Admin</button>
                                     </form>
-                                {% else %}
-                                    <span class="badge badge-no-auth">No Login</span>
                                 {% endif %}
+                            </td>
+                            <td>
+                                {% if not u.is_root %}
+                                <form method="POST" action="/admin/set_graduated">
+                                    <input type="hidden" name="target_id" value="{{ u.student_id }}">
+                                    <input type="hidden" name="graduated" value="{{ 'false' if u.graduated_date else 'true' }}">
+                                    <button type="submit" class="btn-action btn-graduate">
+                                        {{ 'Unmark Graduate' if u.graduated_date else 'Mark Graduate' }}
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                            <td>
                                 {% if not u.is_root %}
                                 <form method="POST" action="/admin/delete_user" onsubmit="return confirm('Delete {{ u.first_name }} {{ u.last_name }}? This cannot be undone.')">
                                     <input type="hidden" name="target_id" value="{{ u.student_id }}">
@@ -88,24 +164,7 @@
                 </table>
             </div>
 
-            <div class="admin-section">
-                <h3>Create User</h3>
-                <form method="POST" action="/admin/create_user">
-                    <div class="form-group">
-                        <label for="first_name">First Name</label>
-                        <input type="text" id="first_name" name="first_name" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="last_name">Last Name</label>
-                        <input type="text" id="last_name" name="last_name" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="discord_id">Discord ID</label>
-                        <input type="text" id="discord_id" name="discord_id" required>
-                    </div>
-                    <button type="submit">Create User</button>
-                </form>
-            </div>
+            <p class="support-note">Experiencing bugs? Email: <a href="mailto:scholarship@r71.org">scholarship@r71.org</a></p>
         </div>
     </div>
     <script>
@@ -116,6 +175,52 @@
             if (!e.target.closest('.nav-avatar-wrapper')) {
                 document.getElementById('avatar-menu').classList.add('hidden');
             }
+        });
+
+        let showingGraduates = false;
+
+        function applyGraduateFilter() {
+            document.querySelectorAll('#user-table-body tr[data-graduated="true"]').forEach(function(row) {
+                row.style.display = showingGraduates ? '' : 'none';
+            });
+        }
+
+        window.toggleGraduates = function() {
+            showingGraduates = !showingGraduates;
+            document.getElementById('toggle-graduates-btn').textContent =
+                showingGraduates ? 'Hide Graduates' : 'Show Graduates';
+            applyGraduateFilter();
+        };
+
+        applyGraduateFilter();
+
+        // Intercept graduate toggle forms to avoid page reload
+        document.querySelectorAll('form[action="/admin/set_graduated"]').forEach(function(form) {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const row = form.closest('tr');
+                const graduatedInput = form.querySelector('input[name="graduated"]');
+                const btn = form.querySelector('button');
+                const willBeGraduated = graduatedInput.value === 'true';
+
+                btn.disabled = true;
+                fetch('/admin/set_graduated', { method: 'POST', body: new FormData(form) })
+                    .then(function(res) {
+                        if (res.ok || res.redirected) {
+                            row.setAttribute('data-graduated', willBeGraduated ? 'true' : 'false');
+                            btn.textContent = willBeGraduated ? 'Unmark Graduate' : 'Mark Graduate';
+                            btn.className = 'btn-action btn-graduate';
+                            graduatedInput.value = willBeGraduated ? 'false' : 'true';
+                            if (willBeGraduated && !showingGraduates) {
+                                showingGraduates = true;
+                                document.getElementById('toggle-graduates-btn').textContent = 'Hide Graduates';
+                            }
+                            applyGraduateFilter();
+                        }
+                        btn.disabled = false;
+                    })
+                    .catch(function() { btn.disabled = false; });
+            });
         });
     </script>
 </body>

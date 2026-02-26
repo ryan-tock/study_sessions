@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Study Sessions</title>
+    <title>Study Sessions</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@7/dist/fuse.min.js"></script>
 </head>
 <body>
     <div class="login-container">
@@ -43,31 +44,57 @@
             </form>
         </div>
 
-        <details class="root-login">
-            <summary>Root Login</summary>
-            <form method="POST" action="/root_login">
-                <div class="form-group">
-                    <label for="root_password">Password:</label>
-                    <input type="password" id="root_password" name="password" required autocomplete="current-password">
-                </div>
-                <button type="submit">Login as Root</button>
-            </form>
-        </details>
+        <p class="support-note">Experiencing bugs? Email: <a href="mailto:scholarship@r71.org">scholarship@r71.org</a></p>
     </div>
 
     <script>
-        let debounceTimer;
-
         const searchInput = document.getElementById('name-search');
         const dropdown = document.getElementById('search-dropdown');
         const userSelectSection = document.getElementById('user-select-section');
         const selectedSection = document.getElementById('selected-section');
 
-        searchInput.addEventListener('input', function () {
-            clearTimeout(debounceTimer);
+        let fuse = null;
+        let loadingUsers = false;
+
+        async function ensureUsersLoaded() {
+            if (fuse !== null) return;
+            if (loadingUsers) {
+                await new Promise(resolve => {
+                    const check = setInterval(() => {
+                        if (fuse !== null) { clearInterval(check); resolve(); }
+                    }, 30);
+                });
+                return;
+            }
+            loadingUsers = true;
+            try {
+                const res = await fetch('/api/users/all');
+                const users = await res.json();
+                fuse = new Fuse(users, {
+                    keys: [{ name: 'first_name', weight: 1 }, { name: 'last_name', weight: 1 }],
+                    threshold: 0.4,
+                    includeScore: true,
+                    useExtendedSearch: false,
+                    ignoreLocation: true,
+                });
+            } catch(e) {
+                fuse = new Fuse([]);
+            }
+        }
+
+        function filterUsers(query) {
+            const q = query.trim();
+            if (!q || !fuse) return [];
+            return fuse.search(q, { limit: 8 }).map(r => r.item);
+        }
+
+        searchInput.addEventListener('input', async function () {
             const q = this.value.trim();
-            if (q.length < 2) { hideDropdown(); return; }
-            debounceTimer = setTimeout(() => fetchUsers(q), 200);
+            if (q.length === 0) { hideDropdown(); return; }
+            await ensureUsersLoaded();
+            const currentQ = searchInput.value.trim();
+            if (currentQ.length === 0) { hideDropdown(); return; }
+            showDropdown(filterUsers(currentQ));
         });
 
         searchInput.addEventListener('keydown', function (e) {
@@ -88,12 +115,6 @@
                 hideDropdown();
             }
         });
-
-        async function fetchUsers(q) {
-            const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
-            const users = await res.json();
-            showDropdown(users);
-        }
 
         function showDropdown(users) {
             dropdown.innerHTML = '';

@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Form, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -7,11 +8,12 @@ from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 
 from .auth import (
-    authenticate_user, authenticate_root_user, create_access_token, create_refresh_token,
+    authenticate_user, create_access_token, create_refresh_token,
     verify_refresh_token, revoke_refresh_token, get_password_hash, verify_password
 )
 from .config import SECRET_KEY, ALGORITHM, DISCORD_BOT_TOKEN, USER_PASSWORD
-from .database import get_db
+from .database import get_db, get_db_for_user
+from .persistence import backup, restore_from_disk
 from typing import Optional
 import urllib.request
 import urllib.error
@@ -50,7 +52,12 @@ AVATAR_DIR = os.path.join(current_dir, "static", "avatars")
 os.makedirs(AVATAR_DIR, exist_ok=True)
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 # Setup templates and static files with absolute paths
 templates = Jinja2Templates(directory=os.path.join(current_dir, "templates"))
@@ -92,7 +99,7 @@ def download_and_cache_avatar(student_id: int, discord_id: str) -> None:
         with open(os.path.join(AVATAR_DIR, f"{student_id}.png"), "wb") as f:
             f.write(img_data)
 
-        with get_db() as conn:
+        with get_db_for_user({"student_id": student_id, "is_admin": False}) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE students SET avatar_checked_at = NOW() WHERE student_id = %s",
@@ -170,7 +177,7 @@ async def login(
     response: Response,
     background_tasks: BackgroundTasks,
     first_name: str = Form(...),
-    last_name: str = Form(...),
+    last_name: str = Form(default=""),
     password: str = Form(...)
 ):
     """Handle login form submission."""
@@ -234,28 +241,6 @@ async def login(
     return response
 
 
-@app.post("/root_login")
-async def root_login(response: Response, password: str = Form(...)):
-    """Handle root login — password only."""
-    user = authenticate_root_user(password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid root password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    access_token = create_access_token(
-        data={"sub": str(user["student_id"]), "is_admin": True, "is_root": True},
-        expires_delta=timedelta(minutes=30)
-    )
-    refresh_token = create_refresh_token(user["student_id"])
-
-    response = RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
-    response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True, max_age=1800, samesite="lax")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, max_age=604800, samesite="lax", path="/")
-    return response
-
 
 @app.post("/logout")
 async def logout(request: Request, response: Response):
@@ -272,7 +257,9 @@ async def logout(request: Request, response: Response):
 
 @app.get("/user/portal", response_class=HTMLResponse)
 async def user_portal(request: Request, user: dict = Depends(require_auth), message: Optional[str] = None):
-    """User portal - accessible by all authenticated users."""
+    """User portal - accessible by all authenticated users except root."""
+    if user.get("is_root"):
+        return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse("user_portal.html", {
         "request": request,
         "user": user,
@@ -283,13 +270,17 @@ async def user_portal(request: Request, user: dict = Depends(require_auth), mess
 
 @app.get("/user/set_password", response_class=HTMLResponse)
 async def get_set_password(request: Request, user: dict = Depends(require_auth)):
-    """First-login password setup page."""
+    """First-login password setup page. Root users are not permitted here."""
+    if user.get("is_root"):
+        return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse("set_password.html", {"request": request, "user": user})
 
 
 @app.post("/user/set_password", response_class=HTMLResponse)
 async def post_set_password(user: dict = Depends(require_auth), new_password: str = Form(...)):
-    """Handle first-login password setup. Re-issues token with is_first_login=False."""
+    """Handle first-login password setup. Re-issues token with is_first_login=False. Root users are not permitted here."""
+    if user.get("is_root"):
+        return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -372,30 +363,35 @@ async def post_change_password(
 @app.get("/admin/portal", response_class=HTMLResponse)
 async def admin_portal(request: Request, user: dict = Depends(require_admin), message: Optional[str] = None):
     """Admin portal - accessible only by admins."""
-    with get_db() as conn:
+    with get_db_for_user(user) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT s.student_id, s.first_name, s.last_name, sa.is_admin, sa.is_root
+                """SELECT s.student_id, s.first_name, s.last_name, sa.is_admin, sa.is_root, s.graduated_date
                    FROM students s
                    LEFT JOIN student_auth sa ON s.student_id = sa.student_id
-                   ORDER BY sa.is_root DESC NULLS LAST, sa.is_admin DESC NULLS LAST, s.last_name, s.first_name"""
+                   ORDER BY sa.is_root DESC NULLS LAST, sa.is_admin DESC NULLS LAST,
+                            (s.graduated_date IS NOT NULL), s.last_name, s.first_name"""
             )
             users = [
-                {"student_id": r[0], "first_name": r[1], "last_name": r[2], "is_admin": r[3], "is_root": r[4]}
+                {"student_id": r[0], "first_name": r[1], "last_name": r[2], "is_admin": r[3], "is_root": r[4], "graduated_date": r[5]}
                 for r in cur.fetchall()
             ]
+            cur.execute("SELECT (term).academic_year, (term).season FROM current_term LIMIT 1")
+            row = cur.fetchone()
+            current_term = {"academic_year": row[0], "season": row[1]} if row else None
     return templates.TemplateResponse("admin_portal.html", {
         "request": request,
         "user": user,
         "user_profile": get_user_profile(user["student_id"]),
         "message": message,
-        "users": users
+        "users": users,
+        "current_term": current_term,
     })
 
 
 @app.post("/admin/set_admin", response_class=HTMLResponse)
 async def set_admin(
-    _: dict = Depends(require_admin),
+    user: dict = Depends(require_admin),
     target_id: int = Form(...),
     make_admin: bool = Form(...)
 ):
@@ -415,9 +411,11 @@ async def set_admin(
                 "UPDATE student_auth SET is_admin = %s WHERE student_id = %s",
                 (make_admin, target_id)
             )
+            cur.execute("DELETE FROM refresh_tokens WHERE student_id = %s", (target_id,))
         conn.commit()
-    action = "elevated+to+admin" if make_admin else "removed+from+admin"
-    return RedirectResponse(url=f"/admin/portal?message=User+{action}", status_code=status.HTTP_302_FOUND)
+    if not make_admin and target_id == user["student_id"]:
+        return RedirectResponse(url="/user/portal", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/admin/delete_user", response_class=HTMLResponse)
@@ -428,7 +426,7 @@ async def delete_user(
     """Delete a student. Root users cannot be deleted."""
     if target_id == user["student_id"]:
         return RedirectResponse(url="/admin/portal?message=Cannot+delete+your+own+account", status_code=status.HTTP_302_FOUND)
-    with get_db() as conn:
+    with get_db_for_user(user) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT is_root FROM student_auth WHERE student_id = %s", (target_id,))
             result = cur.fetchone()
@@ -443,7 +441,45 @@ async def delete_user(
     avatar_path = os.path.join(AVATAR_DIR, f"{target_id}.png")
     if os.path.exists(avatar_path):
         os.remove(avatar_path)
-    return RedirectResponse(url="/admin/portal?message=User+deleted", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/admin/set_graduated", response_class=HTMLResponse)
+async def set_graduated(
+    user: dict = Depends(require_admin),
+    target_id: int = Form(...),
+    graduated: bool = Form(...)
+):
+    """Set or clear a student's graduated_date. Root users cannot be modified."""
+    with get_db_for_user(user) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT is_root FROM student_auth WHERE student_id = %s", (target_id,))
+            result = cur.fetchone()
+            if result and result[0]:
+                return RedirectResponse(url="/admin/portal?message=Cannot+modify+root+user", status_code=status.HTTP_302_FOUND)
+            if graduated:
+                cur.execute("UPDATE students SET graduated_date = CURRENT_DATE WHERE student_id = %s", (target_id,))
+            else:
+                cur.execute("UPDATE students SET graduated_date = NULL WHERE student_id = %s", (target_id,))
+        conn.commit()
+    return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/api/users/all")
+def all_users():
+    """Return all users for client-side fuzzy search on the login page."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT s.student_id, s.first_name, s.last_name, s.discord_id
+                   FROM students s
+                   JOIN student_auth sa ON s.student_id = sa.student_id
+                   ORDER BY s.last_name, s.first_name"""
+            )
+            return [
+                {"student_id": r[0], "first_name": r[1], "last_name": r[2], "discord_id": r[3]}
+                for r in cur.fetchall()
+            ]
 
 
 @app.get("/api/users/search")
@@ -457,8 +493,7 @@ def search_users(q: str = ""):
                 """SELECT s.student_id, s.first_name, s.last_name, s.discord_id
                    FROM students s
                    JOIN student_auth sa ON s.student_id = sa.student_id
-                   WHERE sa.is_root = FALSE
-                   AND CONCAT(s.first_name, ' ', s.last_name) ILIKE %s
+                   WHERE CONCAT(s.first_name, ' ', s.last_name) ILIKE %s
                    ORDER BY s.last_name, s.first_name
                    LIMIT 8""",
                 (f"%{q}%",)
@@ -499,16 +534,74 @@ def discord_avatar(discord_id: str):
         return {"avatar_url": None, "error": str(e)}
 
 
+@app.post("/admin/set_term", response_class=HTMLResponse)
+async def set_term(
+    user: dict = Depends(require_admin),
+    academic_year: int = Form(...),
+    season: str = Form(...)
+):
+    """Set the current academic term."""
+    if season not in {"spring", "summer", "fall"}:
+        raise HTTPException(status_code=400, detail="Invalid season")
+    with get_db_for_user(user) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO current_term (id, term) VALUES (TRUE, ROW(%s, %s)::academic_term)
+                   ON CONFLICT (id) DO UPDATE SET term = ROW(%s, %s)::academic_term""",
+                (academic_year, season, academic_year, season)
+            )
+        conn.commit()
+    return RedirectResponse(url="/admin/portal?message=Term+updated+successfully", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/admin/restore_backup", response_class=HTMLResponse)
+async def restore_backup(user: dict = Depends(require_admin)):
+    """Restore current term and users from the most recent backup on disk. Root only."""
+    if not user.get("is_root"):
+        return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
+    restored = restore_from_disk(user)
+    if restored:
+        return RedirectResponse(
+            url="/admin/portal?message=Backup+restored+successfully",
+            status_code=status.HTTP_302_FOUND
+        )
+    return RedirectResponse(
+        url="/admin/portal?message=No+backup+found+on+disk",
+        status_code=status.HTTP_302_FOUND
+    )
+
+
+@app.post("/admin/backup", response_class=HTMLResponse)
+async def backup_db(user: dict = Depends(require_admin)):
+    """Backup current term and all non-root users to disk. Root only."""
+    if not user.get("is_root"):
+        return RedirectResponse(url="/admin/portal", status_code=status.HTTP_302_FOUND)
+    with get_db_for_user(user) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT (term).academic_year, (term).season FROM current_term LIMIT 1")
+            row = cur.fetchone()
+    if not row:
+        return RedirectResponse(
+            url="/admin/portal?message=Cannot+backup:+no+current+term+set",
+            status_code=status.HTTP_302_FOUND
+        )
+    backup(row[0], row[1])
+    return RedirectResponse(
+        url="/admin/portal?message=Backup+saved+successfully",
+        status_code=status.HTTP_302_FOUND
+    )
+
+
 @app.post("/admin/create_user", response_class=HTMLResponse)
 async def create_user(
     background_tasks: BackgroundTasks,
-    _: dict = Depends(require_admin),
+    user: dict = Depends(require_admin),
     first_name: str = Form(...),
     last_name: str = Form(...),
     discord_id: str = Form(...)
 ):
     """Create a new student user."""
-    with get_db() as conn:
+    with get_db_for_user(user) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO students (first_name, last_name, discord_id) VALUES (%s, %s, %s) RETURNING student_id",

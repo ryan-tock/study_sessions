@@ -33,7 +33,7 @@ import psycopg2
 import sys
 
 try:
-    hashed = bcrypt.hashpw("$ADMIN_PASSWORD".encode(), bcrypt.gensalt()).decode()
+    hashed = bcrypt.hashpw("$ROOT_PASSWORD".encode(), bcrypt.gensalt()).decode()
     
     conn = psycopg2.connect("dbname=$DB_TO_CREATE user=$DB_DEV_USER")
     cur = conn.cursor()

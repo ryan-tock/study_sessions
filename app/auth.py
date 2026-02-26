@@ -107,7 +107,7 @@ def authenticate_user(first_name: str, last_name: str, password: str) -> Optiona
                 """SELECT s.student_id, sa.hashed_password, sa.is_admin, sa.is_root, sa.last_login
                    FROM students s
                    JOIN student_auth sa ON s.student_id = sa.student_id
-                   WHERE s.first_name = %s AND s.last_name = %s""",
+                   WHERE s.first_name = %s AND COALESCE(s.last_name, '') = %s""",
                 (first_name, last_name)
             )
             result = cur.fetchone()
