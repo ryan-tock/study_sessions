@@ -70,8 +70,11 @@ except Exception as e:
     sys.exit(1)
 EOF
 
+SECRET_KEY=$(openssl rand -base64 32)
+
 echo "Database initialized. Add the following lines to your .envrc file"
-echo "export DATABASE_URL='postgresql://$DB_USER:$DB_PASS@localhost/$DB_TO_CREATE'" 
+echo "export DATABASE_URL='postgresql://$DB_USER:$DB_PASS@localhost/$DB_TO_CREATE'"
+echo "export SECRET_KEY=\"$SECRET_KEY\""
 
 
 # python python_scripts/curl_website.py

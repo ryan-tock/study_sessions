@@ -7,3 +7,4 @@ package-lock.json
 enrollments.json
 node_modules
 .envrc
+avatars
