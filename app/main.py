@@ -21,6 +21,13 @@ import ssl
 import certifi
 import json
 import re
+from collections import defaultdict
+from urllib.parse import urlencode
+
+# Per-user failed login rate limiting: 5 attempts per 1-minute sliding window
+_RATE_LIMIT_WINDOW = timedelta(minutes=1)
+_RATE_LIMIT_MAX = 5
+_failed_login_attempts: dict[str, list[datetime]] = defaultdict(list)
 
 
 def validate_password(password: str) -> Optional[str]:
@@ -161,7 +168,7 @@ def require_admin(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
+async def root(request: Request, error: Optional[str] = None, fn: Optional[str] = None, ln: Optional[str] = None):
     """Root route - redirects to appropriate portal if logged in, else shows login."""
     user = get_current_user(request)
     if user:
@@ -169,7 +176,12 @@ async def root(request: Request):
             return RedirectResponse(url="/admin/portal")
         else:
             return RedirectResponse(url="/user/portal")
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "error": error,
+        "prefill_first_name": fn,
+        "prefill_last_name": ln,
+    })
 
 
 @app.post("/login")
@@ -181,13 +193,23 @@ async def login(
     password: str = Form(...)
 ):
     """Handle login form submission."""
+    key = f"{first_name.strip().lower()} {last_name.strip().lower()}"
+    now = datetime.now(timezone.utc)
+    _failed_login_attempts[key] = [t for t in _failed_login_attempts[key] if now - t < _RATE_LIMIT_WINDOW]
+    if len(_failed_login_attempts[key]) >= _RATE_LIMIT_MAX:
+        return RedirectResponse(
+            url="/?" + urlencode({"error": "Too many failed attempts. Please wait a minute and try again.", "fn": first_name, "ln": last_name}),
+            status_code=status.HTTP_302_FOUND
+        )
+
     user = authenticate_user(first_name, last_name, password)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect name or password",
-            headers={"WWW-Authenticate": "Bearer"},
+        _failed_login_attempts[key].append(now)
+        return RedirectResponse(
+            url="/?" + urlencode({"error": "Invalid name or password.", "fn": first_name, "ln": last_name}),
+            status_code=status.HTTP_302_FOUND
         )
+    _failed_login_attempts.pop(key, None)
     
     # Create tokens
     access_token_expires = timedelta(minutes=30)

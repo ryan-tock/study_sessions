@@ -13,6 +13,10 @@
         <h1>Study Sessions</h1>
         <h2>Login</h2>
 
+        {% if error %}
+        <div class="error-banner">{{ error }}</div>
+        {% endif %}
+
         <div id="user-select-section">
             <div class="form-group name-search-group">
                 <label for="name-search">Name</label>
@@ -47,6 +51,9 @@
         <p class="support-note">Experiencing bugs? Email: <a href="mailto:scholarship@r71.org">scholarship@r71.org</a></p>
     </div>
 
+    {% if prefill_first_name %}
+    <script id="prefill-data" type="application/json">{"first_name": {{ prefill_first_name | tojson }}, "last_name": {{ prefill_last_name | tojson }}}</script>
+    {% endif %}
     <script>
         const searchInput = document.getElementById('name-search');
         const dropdown = document.getElementById('search-dropdown');
@@ -174,6 +181,12 @@
             const input = document.getElementById(id);
             input.type = input.type === 'password' ? 'text' : 'password';
             btn.textContent = input.type === 'password' ? 'Show' : 'Hide';
+        }
+
+        const prefillData = document.getElementById('prefill-data');
+        if (prefillData) {
+            const p = JSON.parse(prefillData.textContent);
+            selectUser({ first_name: p.first_name, last_name: p.last_name, student_id: null });
         }
     </script>
 </body>
