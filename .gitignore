@@ -9,3 +9,5 @@ node_modules
 .envrc
 avatars
 users.json
+.env
+data

@@ -1,29 +1,28 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 import uuid
 import secrets
 from .database import get_db
 from .config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    hp = hashed_password.encode() if isinstance(hashed_password, str) else hashed_password
+    return bcrypt.checkpw(plain_password.encode(), hp)
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -33,8 +32,8 @@ def create_refresh_token(student_id: int) -> str:
     """Creates a refresh token. Returns the token string (UUID.secret) to be sent to client."""
     token_secret = secrets.token_urlsafe(32)
     token_hash = get_password_hash(token_secret)
-    expires = datetime.utcnow() + timedelta(days=7)
-    
+    expires = datetime.now(timezone.utc) + timedelta(days=7)
+
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -43,7 +42,7 @@ def create_refresh_token(student_id: int) -> str:
             )
             token_id = cur.fetchone()[0]
             conn.commit()
-    
+
     return f"{token_id}.{token_secret}"
 
 
@@ -51,12 +50,12 @@ def verify_refresh_token(token: str) -> Optional[int]:
     """Verifies a refresh token and returns student_id if valid."""
     if not token or "." not in token:
         return None
-    
+
     try:
         token_id_str, token_secret = token.split(".", 1)
     except ValueError:
         return None
-    
+
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -76,12 +75,12 @@ def revoke_refresh_token(token: str) -> None:
     """Revoke a refresh token by deleting it from the database."""
     if not token or "." not in token:
         return
-    
+
     try:
         token_id_str = token.split(".", 1)[0]
     except ValueError:
         return
-    
+
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM refresh_tokens WHERE token_id = %s", (token_id_str,))

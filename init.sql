@@ -1,4 +1,7 @@
+\set ON_ERROR_STOP on
+
 DROP VIEW IF EXISTS student_overviews;
+DROP VIEW IF EXISTS current_term;
 
 DROP TABLE IF EXISTS courses CASCADE;
 DROP TABLE IF EXISTS exams CASCADE;
@@ -8,18 +11,21 @@ DROP TABLE IF EXISTS tutors CASCADE;
 DROP TABLE IF EXISTS study_sessions CASCADE;
 DROP TABLE IF EXISTS student_auth;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
-DROP TABLE IF EXISTS current_term;
 
 DROP FUNCTION IF EXISTS is_admin();
 DROP FUNCTION IF EXISTS current_user_id();
+DROP FUNCTION IF EXISTS my_course_ids_for_term(SMALLINT, term_season);
+DROP FUNCTION IF EXISTS my_all_course_ids();
 
 DROP TYPE IF EXISTS sharing_setting CASCADE;
 DROP TYPE IF EXISTS academic_term CASCADE;
 DROP TYPE IF EXISTS term_season CASCADE;
+DROP TYPE IF EXISTS exam_type CASCADE;
 
 CREATE TYPE sharing_setting AS ENUM('closed', 'common_class', 'open');
-CREATE TYPE term_season AS ENUM('spring', 'summer', 'fall');
+CREATE TYPE term_season AS ENUM('spring', 'fall');
 CREATE TYPE academic_term AS (academic_year SMALLINT, season term_season);
+CREATE TYPE exam_type AS ENUM('in_class', 'quiz', 'common_hour', 'final');
 
 -- RLS helper: returns current user's student_id, or NULL if not set
 CREATE FUNCTION current_user_id() RETURNS integer AS $$
@@ -49,27 +55,7 @@ CREATE POLICY courses_insert ON courses FOR INSERT WITH CHECK (is_admin());
 CREATE POLICY courses_update ON courses FOR UPDATE USING (is_admin()) WITH CHECK (is_admin());
 CREATE POLICY courses_delete ON courses FOR DELETE USING (is_admin());
 
-CREATE TABLE exams (
-    exam_id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    course_id INTEGER NOT NULL,
-    test_date DATE NOT NULL,
-    creator_id INTEGER REFERENCES students(student_id) ON DELETE SET NULL,
-
-    CONSTRAINT fk_exams_course
-        FOREIGN KEY(course_id)
-        REFERENCES courses(course_id)
-);
-
-ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
-CREATE POLICY exams_select ON exams FOR SELECT USING (true);
-CREATE POLICY exams_insert ON exams FOR INSERT WITH CHECK (
-    is_admin() OR creator_id = current_user_id()
-);
-CREATE POLICY exams_update ON exams FOR UPDATE USING (is_admin()) WITH CHECK (is_admin());
-CREATE POLICY exams_delete ON exams FOR DELETE USING (
-    is_admin() OR creator_id = current_user_id()
-);
-
+-- students must be created before exams (exams.creator_id references students)
 CREATE TABLE students (
     student_id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     discord_id TEXT,
@@ -90,6 +76,30 @@ CREATE POLICY students_update ON students FOR UPDATE
 CREATE POLICY students_delete ON students FOR DELETE USING (is_admin());
 
 CREATE VIEW student_overviews AS SELECT student_id, first_name, last_name, graduated_date FROM students;
+
+CREATE TABLE exams (
+    exam_id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    course_id INTEGER NOT NULL,
+    test_date DATE NOT NULL,
+    exam_type exam_type NOT NULL DEFAULT 'in_class',
+    creator_id INTEGER REFERENCES students(student_id) ON DELETE SET NULL,
+
+    CONSTRAINT fk_exams_course
+        FOREIGN KEY(course_id)
+        REFERENCES courses(course_id),
+
+    CONSTRAINT unique_exam UNIQUE (course_id, test_date, exam_type)
+);
+
+ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
+CREATE POLICY exams_select ON exams FOR SELECT USING (true);
+CREATE POLICY exams_insert ON exams FOR INSERT WITH CHECK (
+    is_admin() OR creator_id = current_user_id()
+);
+CREATE POLICY exams_update ON exams FOR UPDATE USING (is_admin()) WITH CHECK (is_admin());
+CREATE POLICY exams_delete ON exams FOR DELETE USING (
+    is_admin() OR creator_id = current_user_id()
+);
 
 CREATE TABLE enrollments (
     student_id INTEGER NOT NULL,
@@ -114,12 +124,36 @@ CREATE TABLE enrollments (
 
 ALTER TABLE enrollments ENABLE ROW LEVEL SECURITY;
 
+-- RLS helper: returns the current user's enrolled course IDs for a specific term.
+-- SECURITY DEFINER bypasses RLS on enrollments to avoid infinite recursion in
+-- the enrollment_sharing policy.
+CREATE FUNCTION my_course_ids_for_term(p_year SMALLINT, p_season term_season)
+RETURNS integer[] AS $$
+  SELECT ARRAY(
+    SELECT course_id FROM enrollments
+    WHERE student_id = current_user_id()
+      AND (term).academic_year = p_year
+      AND (term).season = p_season
+  )
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+-- RLS helper: returns all course IDs the current user has ever been enrolled in.
+-- SECURITY DEFINER bypasses RLS on enrollments for the same reason.
+CREATE FUNCTION my_all_course_ids()
+RETURNS integer[] AS $$
+  SELECT ARRAY(
+    SELECT DISTINCT course_id FROM enrollments
+    WHERE student_id = current_user_id()
+  )
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
 CREATE POLICY "enrollment_sharing" ON enrollments
 USING (
   student_id = current_user_id()
   OR
   (
-    course_id = ANY(current_setting('app.my_course_ids', true)::integer[])
+    -- common_class: only show rows for courses the viewer is also in that same term
+    course_id = ANY(my_course_ids_for_term((term).academic_year, (term).season))
     AND
     EXISTS (SELECT 1 FROM students WHERE student_id = enrollments.student_id AND sharing = 'common_class')
   )
@@ -149,13 +183,14 @@ CREATE TABLE tutors (
 
 ALTER TABLE tutors ENABLE ROW LEVEL SECURITY;
 
--- Visibility: sharing-based (same logic as before), SELECT only
+-- Visibility: sharing-based, SELECT only
 CREATE POLICY "tutor_sharing" ON tutors FOR SELECT
 USING (
   student_id = current_user_id()
   OR
   (
-    course_id = ANY(current_setting('app.my_course_ids', true)::integer[])
+    -- common_class: show tutor capability if viewer has ever been enrolled in that course
+    course_id = ANY(my_all_course_ids())
     AND
     EXISTS (SELECT 1 FROM students WHERE student_id = tutors.student_id AND sharing = 'common_class')
   )
@@ -213,18 +248,37 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens(expires_at);
 
--- Singleton table: only one row allowed (id must be TRUE)
-CREATE TABLE current_term (
-    id BOOLEAN PRIMARY KEY DEFAULT TRUE,
-    term academic_term NOT NULL,
-    CONSTRAINT single_row CHECK (id)
-);
-
-ALTER TABLE current_term ENABLE ROW LEVEL SECURITY;
-CREATE POLICY current_term_select ON current_term FOR SELECT USING (true);
-CREATE POLICY current_term_insert ON current_term FOR INSERT WITH CHECK (is_admin());
-CREATE POLICY current_term_update ON current_term FOR UPDATE USING (is_admin()) WITH CHECK (is_admin());
-CREATE POLICY current_term_delete ON current_term FOR DELETE USING (is_admin());
+-- Computed view: infers current term from exam dates when data exists,
+-- falling back to calendar date (Jan-Jun → spring, Jul-Dec → fall) when the DB is empty.
+-- Picks the term whose exams are closest (by days) to today.
+CREATE VIEW current_term AS
+WITH exam_terms AS (
+    SELECT
+        EXTRACT(YEAR FROM test_date)::smallint AS academic_year,
+        CASE WHEN EXTRACT(MONTH FROM test_date) <= 6 THEN 'spring'::term_season
+             ELSE 'fall'::term_season
+        END AS season,
+        ABS(test_date - CURRENT_DATE) AS days_from_today
+    FROM exams
+),
+term_distances AS (
+    SELECT academic_year, season, MIN(days_from_today) AS min_distance
+    FROM exam_terms
+    GROUP BY academic_year, season
+    ORDER BY min_distance ASC
+    LIMIT 1
+)
+SELECT
+    COALESCE(
+        (SELECT academic_year FROM term_distances),
+        EXTRACT(YEAR FROM NOW())::smallint
+    ) AS academic_year,
+    COALESCE(
+        (SELECT season FROM term_distances),
+        CASE WHEN EXTRACT(MONTH FROM NOW()) <= 6 THEN 'spring'::term_season
+             ELSE 'fall'::term_season
+        END
+    ) AS season;
 
 CREATE INDEX course_department ON courses (department);
 CREATE INDEX exam_dates ON exams (test_date);

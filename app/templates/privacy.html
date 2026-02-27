@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Study Sessions</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="login-container">
+        <h1>Study Sessions</h1>
+        <h2>Privacy Settings</h2>
+        <p style="text-align: center; color: #7f8c8d; margin-bottom: 25px; font-size: 14px;">
+            Control who can see which classes you're taking.
+        </p>
+
+        <form method="POST" action="/user/privacy">
+            <div class="form-group">
+                <div class="sharing-options">
+                    <label class="sharing-option {% if user_profile.sharing == 'open' %}sharing-option-selected{% endif %}">
+                        <input type="radio" name="sharing" value="open"
+                               {% if user_profile.sharing == 'open' %}checked{% endif %}>
+                        <div class="sharing-option-content">
+                            <span class="sharing-option-title">Open</span>
+                            <span class="sharing-option-desc">Anyone logged in can see your schedule</span>
+                        </div>
+                    </label>
+                    <label class="sharing-option {% if user_profile.sharing == 'common_class' %}sharing-option-selected{% endif %}">
+                        <input type="radio" name="sharing" value="common_class"
+                               {% if user_profile.sharing == 'common_class' %}checked{% endif %}>
+                        <div class="sharing-option-content">
+                            <span class="sharing-option-title">Classmates only</span>
+                            <span class="sharing-option-desc">Others can only see the classes you have in common with them that term</span>
+                        </div>
+                    </label>
+                    <label class="sharing-option {% if user_profile.sharing == 'closed' %}sharing-option-selected{% endif %}">
+                        <input type="radio" name="sharing" value="closed"
+                               {% if user_profile.sharing == 'closed' %}checked{% endif %}>
+                        <div class="sharing-option-content">
+                            <span class="sharing-option-title">Private</span>
+                            <span class="sharing-option-desc">Only admins can see your schedule</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <button type="submit">Save</button>
+        </form>
+
+        <div style="text-align: center; margin-top: 15px;">
+            <a href="javascript:history.back()" style="color: #7f8c8d; font-size: 14px; text-decoration: none;">Cancel</a>
+        </div>
+    </div>
+
+    <script>
+        document.querySelectorAll('.sharing-option input[type="radio"]').forEach(function(radio) {
+            radio.addEventListener('change', function() {
+                document.querySelectorAll('.sharing-option').forEach(function(el) {
+                    el.classList.remove('sharing-option-selected');
+                });
+                if (this.checked) {
+                    this.closest('.sharing-option').classList.add('sharing-option-selected');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

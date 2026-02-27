@@ -1,10 +1,31 @@
 set -e
 
+# Load variables from .env so ROOT_PASSWORD etc. are available in this script
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
 DB_TO_DROP="study_sessions"
 DB_TO_CREATE="study_sessions"
 DB_USER="app_user"
 DB_PASS=$(openssl rand -hex 24)
-DB_DEV_USER="ryan"
+# Auto-detect the PostgreSQL superuser if not set in .env.
+# On macOS (Homebrew), the current user typically has a superuser role.
+# On Linux, the superuser is usually the 'postgres' system user.
+if [ -z "$DB_DEV_USER" ]; then
+    if psql -c '\q' postgres 2>/dev/null; then
+        DB_DEV_USER="$(whoami)"
+    elif sudo -u postgres psql -c '\q' 2>/dev/null; then
+        DB_DEV_USER="postgres"
+    else
+        echo "ERROR: Could not connect to PostgreSQL as $(whoami) or postgres."
+        echo "Set DB_DEV_USER in your .env to override."
+        exit 1
+    fi
+    echo "Using PostgreSQL superuser: $DB_DEV_USER"
+fi
 
 echo "Removing cached avatars"
 rm -rf "$(dirname "$0")/app/static/avatars"
@@ -72,9 +93,10 @@ EOF
 
 SECRET_KEY=$(openssl rand -base64 32)
 
-echo "Database initialized. Add the following lines to your .envrc file"
-echo "export DATABASE_URL='postgresql://$DB_USER:$DB_PASS@localhost/$DB_TO_CREATE'"
-echo "export SECRET_KEY=\"$SECRET_KEY\""
+echo ""
+echo "Database initialized. Add the following lines to your .env file"
+echo "DATABASE_URL=\"postgresql://$DB_USER:$DB_PASS@localhost/$DB_TO_CREATE\""
+echo "SECRET_KEY=\"$SECRET_KEY\""
 
 
 # python python_scripts/curl_website.py

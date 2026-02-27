@@ -17,58 +17,50 @@
                     <a href="/user/portal" class="portal-link">Go to User Portal</a>
                     {% endif %}
                     {% if user.is_root %}
-                    <form method="POST" action="/admin/restore_backup" style="display: inline;" onsubmit="return confirm('Restore from backup? This will overwrite current users and term with the last backup.')">
-                        <button type="submit" class="backup-btn">Restore Backup</button>
-                    </form>
-                    <form method="POST" action="/admin/backup" style="display: inline;">
-                        <button type="submit" class="backup-btn">Backup DB</button>
-                    </form>
-                    <button type="button" class="backup-btn backup-btn-danger" onclick="toggleWipePanel()">Wipe Backup</button>
+                    <button type="button" class="backup-btn" id="make-backup-btn" onclick="makeBackup()">Make Backup</button>
+                    <button type="button" class="backup-btn" onclick="openBackupsPanel()">Browse Backups</button>
                     {% endif %}
                     <form method="POST" action="/logout" style="display: inline;">
                         <button type="submit" class="logout-btn">Logout</button>
                     </form>
-                    <div class="nav-avatar-wrapper">
-                        <button type="button" class="nav-avatar-btn" onclick="toggleAvatarMenu()">
-                            {% if user_profile.discord_id %}
-                            <img src="/avatar/{{ user.student_id }}" alt=""
-                                 style="display: none;"
-                                 onload="this.style.display='block'; this.nextElementSibling.style.display='none';"
-                                 onerror="this.style.display='none';">
-                            {% endif %}
-                            <div class="nav-avatar-initials">{{ ((user_profile.first_name or '?')[0] ~ (user_profile.last_name or '')[0:1])|upper }}</div>
-                        </button>
-                        <div id="avatar-menu" class="avatar-menu hidden">
-                            {% if not user.is_root %}
-                            <a href="/user/change_password">Change Password</a>
-                            {% endif %}
-                        </div>
-                    </div>
                 </div>
             </nav>
 
             {% if user.is_root %}
-            <div id="wipe-backdrop" class="wipe-backdrop hidden" onclick="toggleWipePanel()"></div>
-            <div id="wipe-panel" class="wipe-panel hidden">
-                <p class="wipe-panel-title">Wipe Backup Files</p>
-                <form method="POST" action="/admin/wipe_backup" id="wipe-form">
-                    <div class="wipe-checkboxes">
-                        <label class="wipe-option">
-                            <input type="checkbox" name="wipe_term" value="true" id="wipe-term-cb">
-                            <span>Current term <code>current_term.json</code></span>
-                        </label>
-                        <label class="wipe-option">
-                            <input type="checkbox" name="wipe_users" value="true" id="wipe-users-cb">
-                            <span>User account backups <code>*/users.json</code></span>
-                        </label>
-                    </div>
-                    <div class="wipe-actions">
-                        <button type="submit" id="wipe-btn" class="btn-action btn-delete" disabled>Wipe Selected</button>
-                        <button type="button" class="btn-action" onclick="toggleWipePanel()">Cancel</button>
-                    </div>
-                </form>
+<div id="backups-backdrop" class="wipe-backdrop hidden" onclick="closeBackupsPanel()"></div>
+            <div id="backups-panel" class="wipe-panel hidden">
+                <p class="wipe-panel-title">Backups</p>
+                <div id="backups-list" class="backups-list">
+                    <div class="backups-loading">Loading…</div>
+                </div>
+                <div class="wipe-actions">
+                    <button type="button" class="btn-action" onclick="closeBackupsPanel()">Close</button>
+                </div>
             </div>
             {% endif %}
+
+            <div id="edit-user-backdrop" class="wipe-backdrop hidden" onclick="closeEditModal()"></div>
+            <div id="edit-user-panel" class="wipe-panel hidden">
+                <p class="wipe-panel-title">Edit User</p>
+                <input type="hidden" id="edit-user-id">
+                <div class="form-group">
+                    <label for="edit-first-name">First Name</label>
+                    <input type="text" id="edit-first-name">
+                </div>
+                <div class="form-group">
+                    <label for="edit-last-name">Last Name</label>
+                    <input type="text" id="edit-last-name">
+                </div>
+                <div class="form-group">
+                    <label for="edit-discord-id">Discord ID</label>
+                    <input type="text" id="edit-discord-id" pattern="[0-9]+" title="Discord ID must be numeric">
+                </div>
+                <p id="edit-user-error" class="exam-preview-error hidden" style="margin-bottom: 12px;"></p>
+                <div class="wipe-actions">
+                    <button type="button" id="edit-user-save-btn" class="btn-action btn-elevate" onclick="saveEditUser()">Save Changes</button>
+                    <button type="button" class="btn-action" onclick="closeEditModal()">Cancel</button>
+                </div>
+            </div>
         </div>
 
         <div class="content">
@@ -77,25 +69,77 @@
             {% endif %}
 
             <div class="admin-sections-row">
-                <div class="admin-section">
-                    <h3>Current Term</h3>
-                    <form method="POST" action="/admin/set_term">
-                        <div class="form-group">
-                            <label for="academic_year">Academic Year</label>
-                            <input type="number" id="academic_year" name="academic_year"
-                                   value="{{ current_term.academic_year if current_term else '' }}"
-                                   min="2000" max="2100" required>
+                <div class="import-column">
+                    <div class="admin-section" id="course-import-section">
+                        <h3>Import Courses <span id="course-term-label" class="import-term-label"></span></h3>
+                        <div class="course-import-controls">
+                            <span id="course-cache-status" class="import-status-text"></span>
+                            <button type="button" id="course-preview-btn" class="btn-action btn-elevate" onclick="previewCourses()">Fetch &amp; Preview</button>
                         </div>
-                        <div class="form-group">
-                            <label for="season">Season</label>
-                            <select id="season" name="season" required>
-                                <option value="spring" {% if current_term and current_term.season == 'spring' %}selected{% endif %}>Spring</option>
-                                <option value="summer" {% if current_term and current_term.season == 'summer' %}selected{% endif %}>Summer</option>
-                                <option value="fall" {% if current_term and current_term.season == 'fall' %}selected{% endif %}>Fall</option>
-                            </select>
+                        <div id="course-preview-area" class="hidden">
+                            <div id="course-preview-summary" class="exam-preview-summary"></div>
+                            <form method="POST" action="/admin/import_courses" id="course-import-form" class="exam-import-actions">
+                                <input type="hidden" name="academic_year" id="course-import-year">
+                                <input type="hidden" name="season" id="course-import-season">
+                                <button type="submit" id="course-import-btn" class="btn-action btn-elevate" disabled></button>
+                                <button type="button" class="btn-action" onclick="cancelCoursePreview()">Cancel</button>
+                            </form>
+                            <div class="exam-preview-table-wrapper">
+                                <table class="user-table" id="course-preview-table">
+                                    <thead><tr><th>Dept</th><th>Total</th><th>New</th><th>Updates</th></tr></thead>
+                                    <tbody id="course-preview-body"></tbody>
+                                </table>
+                            </div>
                         </div>
-                        <button type="submit" id="set-term-btn" disabled>Set Term</button>
-                    </form>
+                        <p id="course-preview-error" class="exam-preview-error hidden"></p>
+                    </div>
+
+                    <div class="admin-section" id="exam-import-section">
+                        <h3>Import Exams <span id="exam-term-label" class="import-term-label"></span></h3>
+                        <div id="exam-pdf-status" class="exam-pdf-status-row-group"></div>
+                        <div class="exam-upload-row">
+                            <div class="form-group" style="margin: 0; flex: 0 0 auto;">
+                                <label for="exam-type-select">Schedule Type</label>
+                                <select id="exam-type-select">
+                                    <option value="" disabled selected>Select type...</option>
+                                    <option value="common_hour">Common Hour Exam Schedule</option>
+                                    <option value="final">Final Exam Schedule</option>
+                                </select>
+                                <p id="finals-format-note" class="finals-format-note hidden">Use the <strong>detailed final exam grid</strong>, not the finals overview.</p>
+                            </div>
+                            <div class="form-group" style="margin: 0; flex: 1;">
+                                <label for="exam-pdf-input">PDF File</label>
+                                <input type="file" id="exam-pdf-input" accept=".pdf">
+                            </div>
+                            <button type="button" id="exam-preview-btn" class="btn-action btn-elevate" onclick="previewExamPdf()" disabled>Preview</button>
+                        </div>
+
+                        <div id="exam-preview-area" class="hidden">
+                            <div id="exam-preview-summary" class="exam-preview-summary"></div>
+                            <div id="missing-courses-detail" class="missing-courses-detail hidden"></div>
+                            <form method="POST" action="/admin/import_exams" id="exam-import-form" class="exam-import-actions">
+                                <input type="hidden" name="entries_json" id="exam-entries-json">
+                                <input type="hidden" name="exam_type" id="exam-type-hidden">
+                                <input type="hidden" name="pdf_b64" id="exam-pdf-b64">
+                                <button type="submit" id="exam-import-btn" class="btn-action btn-elevate" disabled></button>
+                                <button type="button" class="btn-action" onclick="cancelExamPreview()">Cancel</button>
+                            </form>
+                            <div class="exam-preview-table-wrapper">
+                                <table class="user-table" id="exam-preview-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Course</th>
+                                            <th>Title</th>
+                                            <th>Date</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="exam-preview-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <p id="exam-preview-error" class="exam-preview-error hidden"></p>
+                    </div>
                 </div>
 
                 <div class="admin-section">
@@ -128,15 +172,27 @@
                 </div>
             </div>
 
-            <div class="admin-section">
+            <div class="admin-sections-row">
+                <div class="admin-section" id="exam-calendar-section">
+                    <h3>Exam Schedule</h3>
+                    <div id="exam-calendar-container"><p style="color:#888;font-size:13px;">Loading…</p></div>
+                </div>
+
+                <div class="admin-section" id="study-session-todo-section">
+                    <h3>Upcoming Exams</h3>
+                    <div id="upcoming-exams-container"><p style="color:#888;font-size:13px;">Loading…</p></div>
+                </div>
+            </div>
+
+            <div class="admin-section manage-users-section">
                 <h3>Manage Users</h3>
                 <button type="button" id="toggle-graduates-btn" class="btn-action btn-elevate" onclick="toggleGraduates()">Show Graduates</button>
                 <table class="user-table">
                     <thead>
                         <tr>
                             <th>Name</th>
-                            <th>Student ID</th>
                             <th>Role</th>
+                            <th></th>
                             <th></th>
                             <th></th>
                             <th></th>
@@ -144,9 +200,21 @@
                     </thead>
                     <tbody id="user-table-body">
                         {% for u in users %}
-                        <tr data-graduated="{{ 'true' if u.graduated_date else 'false' }}">
-                            <td>{{ u.first_name }} {{ u.last_name }}</td>
-                            <td>{{ u.student_id }}</td>
+                        <tr data-graduated="{{ 'true' if u.graduated_date else 'false' }}" data-student-id="{{ u.student_id }}">
+                            <td>
+                                <div class="user-table-name-cell">
+                                    <div class="user-table-avatar">
+                                        {% if u.discord_id %}
+                                        <img src="/avatar/{{ u.student_id }}" alt=""
+                                             style="display: none;"
+                                             onload="this.style.display='block'; this.nextElementSibling.style.display='none';"
+                                             onerror="this.style.display='none';">
+                                        {% endif %}
+                                        <div class="user-table-avatar-initials">{{ ((u.first_name or '?')[0] ~ (u.last_name or '')[0:1])|upper }}</div>
+                                    </div>
+                                    {{ u.first_name }} {{ u.last_name }}
+                                </div>
+                            </td>
                             <td>
                                 {% if u.is_root %}
                                     <span class="badge badge-root">Root</span>
@@ -158,7 +226,7 @@
                                     <span class="badge badge-no-auth">No Login</span>
                                 {% endif %}
                             </td>
-                            <td>
+                            <td class="action-cell">
                                 {% if u.is_admin and not u.is_root %}
                                     <form method="POST" action="/admin/set_admin"
                                           onsubmit="return confirm('Demote {{ u.first_name }} {{ u.last_name }}?\n\nNote: they will retain admin access for up to 30 minutes until their session expires.')">
@@ -175,7 +243,7 @@
                                     </form>
                                 {% endif %}
                             </td>
-                            <td>
+                            <td class="action-cell">
                                 {% if not u.is_root %}
                                 <form method="POST" action="/admin/set_graduated">
                                     <input type="hidden" name="target_id" value="{{ u.student_id }}">
@@ -186,7 +254,17 @@
                                 </form>
                                 {% endif %}
                             </td>
-                            <td>
+                            <td class="action-cell">
+                                {% if not u.is_root %}
+                                <button type="button" class="btn-action btn-edit"
+                                    data-student-id="{{ u.student_id }}"
+                                    data-first-name="{{ u.first_name|e }}"
+                                    data-last-name="{{ u.last_name|e }}"
+                                    data-discord-id="{{ u.discord_id or '' }}"
+                                    onclick="openEditModal(this)">Edit</button>
+                                {% endif %}
+                            </td>
+                            <td class="action-cell">
                                 {% if not u.is_root %}
                                 <form method="POST" action="/admin/delete_user" onsubmit="return confirm('Delete {{ u.first_name }} {{ u.last_name }}? This cannot be undone.')">
                                     <input type="hidden" name="target_id" value="{{ u.student_id }}">
@@ -203,16 +281,8 @@
             <p class="support-note">Experiencing bugs? Email: <a href="mailto:scholarship@r71.org">scholarship@r71.org</a></p>
         </div>
     </div>
+    <script type="application/json" id="portal-data">{{ {"current_term": current_term, "current_term_status": current_term_status, "wipe_terms": wipe_terms} | tojson }}</script>
     <script>
-        window.toggleAvatarMenu = function() {
-            document.getElementById('avatar-menu').classList.toggle('hidden');
-        };
-        document.addEventListener('click', function(e) {
-            if (!e.target.closest('.nav-avatar-wrapper')) {
-                document.getElementById('avatar-menu').classList.add('hidden');
-            }
-        });
-
         let showingGraduates = false;
 
         function applyGraduateFilter() {
@@ -230,15 +300,69 @@
 
         applyGraduateFilter();
 
-        // ===== Set Term validation =====
-        const yearInput = document.getElementById('academic_year');
-        const setTermBtn = document.getElementById('set-term-btn');
-        function updateTermBtn() {
-            const year = parseInt(yearInput.value, 10);
-            setTermBtn.disabled = !(year >= 2000 && year <= 2100);
-        }
-        yearInput.addEventListener('input', updateTermBtn);
-        updateTermBtn();
+        // ===== Populate import section term labels and status =====
+        const _portalData = JSON.parse(document.getElementById('portal-data').textContent);
+        (function() {
+            const ct = _portalData.current_term;
+            const cts = _portalData.current_term_status || {};
+
+            const termLabel = ct
+                ? ct.season.charAt(0).toUpperCase() + ct.season.slice(1) + ' ' + ct.academic_year
+                : 'Unknown term';
+            const noTermHtml = '<span style="color:#e74c3c">No term detected</span>';
+
+            // Course import
+            const courseTermEl = document.getElementById('course-term-label');
+            if (courseTermEl) courseTermEl.textContent = ct ? termLabel : '';
+            if (!ct && courseTermEl) courseTermEl.innerHTML = noTermHtml;
+
+            const cacheStatEl = document.getElementById('course-cache-status');
+            if (cacheStatEl) {
+                cacheStatEl.innerHTML = cts.has_course_cache
+                    ? '<span style="color:#27ae60;">✓ Courses on server</span>'
+                    : '<span style="color:#888;">No courses downloaded</span>';
+            }
+
+            // Exam import
+            const examTermEl = document.getElementById('exam-term-label');
+            if (examTermEl) examTermEl.textContent = ct ? termLabel : '';
+            if (!ct && examTermEl) examTermEl.innerHTML = noTermHtml;
+
+            const pdfStatusEl = document.getElementById('exam-pdf-status');
+            if (pdfStatusEl) {
+                const chIcon = cts.has_common_hour_pdf
+                    ? '<span style="color:#27ae60;">✓ On server</span>'
+                    : '<span style="color:#aaa;">✗ Not yet uploaded</span>';
+                const fIcon = cts.has_finals_pdf
+                    ? '<span style="color:#27ae60;">✓ On server</span>'
+                    : '<span style="color:#aaa;">✗ Not yet uploaded</span>';
+                pdfStatusEl.innerHTML =
+                    '<div class="exam-pdf-status-row"><span class="exam-pdf-status-label">Common Hour:</span>' + chIcon + '</div>' +
+                    '<div class="exam-pdf-status-row"><span class="exam-pdf-status-label">Finals:</span>' + fIcon + '</div>';
+            }
+        })();
+
+        // ===== Populate wipe terms list =====
+        (function() {
+            const list = document.getElementById('wipe-terms-list');
+            if (!list) return;
+            const terms = (_portalData && _portalData.wipe_terms) || [];
+            if (!terms.length) {
+                list.innerHTML = '<em style="color:#aaa;font-size:13px;">No wipeable data found in /data.</em>';
+                return;
+            }
+            terms.forEach(function(t) {
+                const label = document.createElement('label');
+                label.className = 'wipe-option wipe-term-option';
+                const badges = [];
+                if (t.has_users)        badges.push('<span class="wipe-badge wipe-badge-users">users</span>');
+                if (t.has_exams)        badges.push('<span class="wipe-badge wipe-badge-exams">exams</span>');
+                if (t.has_courses)      badges.push('<span class="wipe-badge wipe-badge-courses">courses</span>');
+                if (t.has_course_cache) badges.push('<span class="wipe-badge wipe-badge-cache">course data</span>');
+                label.innerHTML = '<input type="checkbox" name="term" value="' + t.term + '"> <strong>' + t.label + '</strong> ' + badges.join('');
+                list.appendChild(label);
+            });
+        })();
 
         // ===== Create User validation =====
         const firstNameInput = document.getElementById('first_name');
@@ -334,41 +458,337 @@
         lastNameInput.addEventListener('input', updateCreateBtn);
         discordInput.addEventListener('input', onDiscordInput);
 
-        // ===== Wipe backup =====
-        const wipePanel = document.getElementById('wipe-panel');
-        const wipeTermCb = document.getElementById('wipe-term-cb');
-        const wipeUsersCb = document.getElementById('wipe-users-cb');
-        const wipeBtn = document.getElementById('wipe-btn');
-
-        const wipeBackdrop = document.getElementById('wipe-backdrop');
-
-        window.toggleWipePanel = function() {
-            if (!wipePanel) return;
-            const opening = wipePanel.classList.contains('hidden');
-            wipePanel.classList.toggle('hidden');
-            if (wipeBackdrop) wipeBackdrop.classList.toggle('hidden');
-            if (opening) {
-                if (wipeTermCb) wipeTermCb.checked = false;
-                if (wipeUsersCb) wipeUsersCb.checked = false;
-                if (wipeBtn) wipeBtn.disabled = true;
+        // ===== Make Backup =====
+        window.makeBackup = async function() {
+            const btn = document.getElementById('make-backup-btn');
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+            try {
+                const res = await fetch('/admin/backup', { method: 'POST' });
+                const data = await res.json();
+                btn.textContent = 'Make Backup';
+                btn.disabled = false;
+                if (data.ok) {
+                    btn.textContent = 'Saved ✓';
+                    setTimeout(() => { btn.textContent = 'Make Backup'; }, 2000);
+                }
+            } catch(e) {
+                btn.textContent = 'Make Backup';
+                btn.disabled = false;
             }
         };
 
-        if (wipeTermCb && wipeUsersCb && wipeBtn) {
-            function updateWipeBtn() {
-                wipeBtn.disabled = !wipeTermCb.checked && !wipeUsersCb.checked;
-            }
-            wipeTermCb.addEventListener('change', updateWipeBtn);
-            wipeUsersCb.addEventListener('change', updateWipeBtn);
-            document.getElementById('wipe-form').addEventListener('submit', function(e) {
-                const parts = [];
-                if (wipeTermCb.checked) parts.push('current term');
-                if (wipeUsersCb.checked) parts.push('user account backups');
-                if (!confirm('Wipe ' + parts.join(' and ') + '? Other files in /data will not be touched.')) {
-                    e.preventDefault();
+        // ===== Backup Browser =====
+        function formatBackupName(name) {
+            const [date, time] = name.split('_');
+            const [y, mo, d] = date.split('-');
+            const h = time.slice(0, 2), mi = time.slice(2, 4);
+            const dt = new Date(y, mo - 1, d, h, mi);
+            return dt.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+        }
+
+        function formatTermName(term) {
+            if (!term) return null;
+            const [year, letter] = term.split('_');
+            const season = letter === 'A' ? 'Spring' : 'Fall';
+            return `${season} ${year}`;
+        }
+
+        async function loadBackupsList() {
+            const listEl = document.getElementById('backups-list');
+            listEl.innerHTML = '<div class="backups-loading">Loading…</div>';
+            try {
+                const res = await fetch('/admin/api/backups');
+                const backups = await res.json();
+                if (!backups.length) {
+                    listEl.innerHTML = '<div class="backups-loading">No backups found.</div>';
+                    return;
                 }
+                listEl.innerHTML = backups.map(b => `
+                    <div class="backup-item">
+                        <div class="backup-item-info">
+                            <span class="backup-item-date">${formatBackupName(b.name)}</span>
+                            <span class="backup-item-count">${b.user_count} users${b.term ? ' · ' + formatTermName(b.term) : ''}</span>
+                        </div>
+                        <div class="backup-item-actions">
+                            <button type="button" class="btn-action btn-elevate backup-restore-btn" data-name="${b.name}">Restore</button>
+                            <button type="button" class="btn-action btn-delete backup-delete-btn" data-name="${b.name}">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+                listEl.querySelectorAll('.backup-restore-btn').forEach(btn => {
+                    btn.addEventListener('click', () => restoreBackup(btn.dataset.name, btn));
+                });
+                listEl.querySelectorAll('.backup-delete-btn').forEach(btn => {
+                    btn.addEventListener('click', () => deleteBackup(btn.dataset.name, btn));
+                });
+            } catch(e) {
+                listEl.innerHTML = '<div class="backups-loading">Failed to load backups.</div>';
+            }
+        }
+
+        async function restoreBackup(name, btn) {
+            if (!confirm('Restore from backup ' + formatBackupName(name) + '?\n\nAll non-root data will be wiped and replaced with this backup. The root account and password are preserved.')) return;
+            btn.disabled = true;
+            btn.textContent = 'Restoring…';
+            try {
+                const form = new FormData();
+                form.append('backup_name', name);
+                const res = await fetch('/admin/api/restore_backup', { method: 'POST', body: form });
+                const data = await res.json();
+                if (data.ok) {
+                    window.location.href = '/admin/portal?message=Backup+restored+successfully';
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = 'Restore';
+                    alert('Restore failed — no data found.');
+                }
+            } catch(e) {
+                btn.disabled = false;
+                btn.textContent = 'Restore';
+            }
+        }
+
+        async function deleteBackup(name, btn) {
+            if (!confirm('Delete backup from ' + formatBackupName(name) + '? This cannot be undone.')) return;
+            btn.disabled = true;
+            try {
+                const res = await fetch('/admin/api/backup/' + name, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.ok) await loadBackupsList();
+            } catch(e) {
+                btn.disabled = false;
+            }
+        }
+
+        window.openBackupsPanel = function() {
+            document.getElementById('backups-panel').classList.remove('hidden');
+            document.getElementById('backups-backdrop').classList.remove('hidden');
+            loadBackupsList();
+        };
+
+        window.closeBackupsPanel = function() {
+            document.getElementById('backups-panel').classList.add('hidden');
+            document.getElementById('backups-backdrop').classList.add('hidden');
+        };
+
+        // Intercept graduate toggle forms to avoid page reload
+        // ===== Exam PDF import =====
+        const examPdfInput = document.getElementById('exam-pdf-input');
+        const examPreviewBtn = document.getElementById('exam-preview-btn');
+        const examTypeSelect = document.getElementById('exam-type-select');
+
+        function updatePreviewBtn() {
+            examPreviewBtn.disabled = !examPdfInput.files.length || !examTypeSelect.value;
+        }
+
+        if (examPdfInput) {
+            examPdfInput.addEventListener('change', updatePreviewBtn);
+            examTypeSelect.addEventListener('change', function() {
+                updatePreviewBtn();
+                document.getElementById('finals-format-note').classList.toggle('hidden', this.value !== 'final');
             });
         }
+
+        window.cancelExamPreview = function() {
+            document.getElementById('exam-preview-area').classList.add('hidden');
+            document.getElementById('exam-preview-error').classList.add('hidden');
+            examPdfInput.value = '';
+            updatePreviewBtn();
+        };
+
+        window.previewExamPdf = async function() {
+            const pdfType = document.getElementById('exam-type-select').value;
+            const file = examPdfInput.files[0];
+            if (!file) return;
+
+            const previewArea = document.getElementById('exam-preview-area');
+            const previewError = document.getElementById('exam-preview-error');
+            const previewBody = document.getElementById('exam-preview-body');
+            const previewSummary = document.getElementById('exam-preview-summary');
+            const importBtn = document.getElementById('exam-import-btn');
+
+            examPreviewBtn.disabled = true;
+            examPreviewBtn.textContent = 'Parsing...';
+            previewArea.classList.add('hidden');
+            previewError.classList.add('hidden');
+
+            const formData = new FormData();
+            formData.append('pdf_file', file);
+            formData.append('exam_type', pdfType);
+
+            try {
+                const res = await fetch('/admin/api/preview_exam_pdf', { method: 'POST', body: formData });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || `Server error ${res.status}`);
+                }
+                const data = await res.json();
+                const entries = data.entries;
+
+                // Render table
+                previewBody.innerHTML = '';
+                let importable = [];
+                entries.forEach(function(e) {
+                    const tr = document.createElement('tr');
+                    const statusClass = e.duplicate ? 'badge-no-auth' : (e.found ? 'badge-admin' : 'badge-no-auth');
+                    const statusText = e.duplicate ? 'Already exists' : (e.found ? 'Will import' : 'Not in DB');
+                    tr.innerHTML =
+                        '<td><strong>' + e.department + e.identifier + '</strong></td>' +
+                        '<td>' + (e.title || '<em style="color:#999">Unknown</em>') + '</td>' +
+                        '<td>' + e.date + '</td>' +
+                        '<td><span class="badge ' + statusClass + '">' + statusText + '</span></td>';
+                    if (!e.found || e.duplicate) tr.style.opacity = '0.5';
+                    previewBody.appendChild(tr);
+                    if (e.found && !e.duplicate) importable.push(e);
+                });
+
+                // Summary
+                const notFoundEntries = entries.filter(e => !e.found);
+                const notFound = notFoundEntries.length;
+                const dupes = entries.filter(e => e.duplicate).length;
+                let summaryParts = [`<strong>${entries.length}</strong> entries found in PDF`];
+                if (notFound) summaryParts.push(`<a id="missing-courses-link" class="missing-courses-link">${notFound} course(s) not in DB</a>`);
+                if (dupes) summaryParts.push(`<span style="color:#888">${dupes} already exist</span>`);
+                previewSummary.innerHTML = summaryParts.join(' &nbsp;·&nbsp; ');
+                const missingDetail = document.getElementById('missing-courses-detail');
+                missingDetail.classList.add('hidden');
+                if (notFound) {
+                    missingDetail.innerHTML = notFoundEntries.map(e => `<span class="missing-course-badge">${e.department}${e.identifier}</span>`).join('');
+                    document.getElementById('missing-courses-link').addEventListener('click', function() {
+                        missingDetail.classList.toggle('hidden');
+                    });
+                }
+
+                // Import button
+                if (importable.length > 0) {
+                    document.getElementById('exam-entries-json').value = JSON.stringify(
+                        importable.map(e => ({ department: e.department, identifier: e.identifier, date: e.date }))
+                    );
+                    document.getElementById('exam-type-hidden').value = pdfType;
+                    // Stash the PDF as base64 so it can be saved to disk only on confirm
+                    const reader = new FileReader();
+                    reader.onload = function(ev) {
+                        document.getElementById('exam-pdf-b64').value = ev.target.result.split(',')[1] || '';
+                    };
+                    reader.readAsDataURL(file);
+                    importBtn.textContent = 'Import ' + importable.length + ' exam' + (importable.length !== 1 ? 's' : '');
+                    importBtn.disabled = false;
+                } else {
+                    document.getElementById('exam-pdf-b64').value = '';
+                    importBtn.textContent = 'Nothing to import';
+                    importBtn.disabled = true;
+                }
+
+                previewArea.classList.remove('hidden');
+            } catch (err) {
+                previewError.textContent = 'Error: ' + err.message;
+                previewError.classList.remove('hidden');
+            } finally {
+                examPreviewBtn.disabled = false;
+                examPreviewBtn.textContent = 'Preview';
+            }
+        };
+
+        // ===== Course import =====
+        window.previewCourses = async function() {
+            const ct = _portalData.current_term;
+            const previewError = document.getElementById('course-preview-error');
+            if (!ct) {
+                previewError.textContent = 'Cannot determine current term.';
+                previewError.classList.remove('hidden');
+                return;
+            }
+            if (_portalData.current_term_status.has_course_cache) {
+                if (!confirm('Courses for this term are already on the server. Re-fetch from web and overwrite?')) {
+                    return;
+                }
+            }
+            const year = ct.academic_year;
+            const season = ct.season;
+            const previewArea = document.getElementById('course-preview-area');
+            const previewBody = document.getElementById('course-preview-body');
+            const previewSummary = document.getElementById('course-preview-summary');
+            const importBtn = document.getElementById('course-import-btn');
+            const previewBtn = document.getElementById('course-preview-btn');
+
+            previewBtn.disabled = true;
+            previewBtn.textContent = 'Fetching…';
+            previewArea.classList.add('hidden');
+            previewError.classList.add('hidden');
+
+            const formData = new FormData();
+            formData.append('academic_year', year);
+            formData.append('season', season);
+
+            try {
+                const res = await fetch('/admin/api/preview_courses', { method: 'POST', body: formData });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Server error ' + res.status);
+                }
+                const data = await res.json();
+
+                let parts = [
+                    '<strong>' + data.total + '</strong> courses across <strong>' + Object.keys(data.departments).length + '</strong> depts',
+                    '<span style="color:#27ae60">' + data.new + ' new</span>',
+                ];
+                if (data.update) parts.push('<span style="color:#f39c12">' + data.update + ' update' + (data.update !== 1 ? 's' : '') + '</span>');
+                if (data.already_current) parts.push('<span style="color:#888">' + data.already_current + ' up to date</span>');
+                if (data.errors.length) parts.push('<span style="color:#e74c3c">' + data.errors.length + ' dept(s) failed</span>');
+                previewSummary.innerHTML = parts.join(' &nbsp;·&nbsp; ');
+
+                previewBody.innerHTML = '';
+                Object.entries(data.departments).sort().forEach(([dept, counts]) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td><strong>' + dept + '</strong></td>' +
+                        '<td>' + counts.total + '</td>' +
+                        '<td>' + (counts.new > 0 ? '<span style="color:#27ae60">+' + counts.new + '</span>' : '<span style="color:#aaa">—</span>') + '</td>' +
+                        '<td>' + (counts.update > 0 ? '<span style="color:#f39c12">↑' + counts.update + '</span>' : '<span style="color:#aaa">—</span>') + '</td>';
+                    previewBody.appendChild(tr);
+                });
+
+                document.getElementById('course-import-year').value = year;
+                document.getElementById('course-import-season').value = season;
+                const importable = data.new + data.update;
+                if (importable > 0) {
+                    const btnParts = [];
+                    if (data.new > 0) btnParts.push(data.new + ' new');
+                    if (data.update > 0) btnParts.push(data.update + ' update' + (data.update !== 1 ? 's' : ''));
+                    importBtn.textContent = 'Import (' + btnParts.join(', ') + ')';
+                    importBtn.disabled = false;
+                } else {
+                    importBtn.textContent = 'Nothing to import';
+                    importBtn.disabled = true;
+                }
+                previewArea.classList.remove('hidden');
+
+                // Expire the preview after 10 minutes to match server-side TTL
+                if (window._coursePreviewTimer) clearTimeout(window._coursePreviewTimer);
+                window._coursePreviewTimer = setTimeout(function() {
+                    window._coursePreviewTimer = null;
+                    document.getElementById('course-preview-area').classList.add('hidden');
+                    const err = document.getElementById('course-preview-error');
+                    err.textContent = 'Preview expired after 10 minutes. Please fetch again.';
+                    err.classList.remove('hidden');
+                }, 10 * 60 * 1000);
+            } catch (err) {
+                previewError.textContent = 'Error: ' + err.message;
+                previewError.classList.remove('hidden');
+            } finally {
+                previewBtn.disabled = false;
+                previewBtn.textContent = 'Fetch & Preview';
+            }
+        };
+
+        window.cancelCoursePreview = function() {
+            if (window._coursePreviewTimer) {
+                clearTimeout(window._coursePreviewTimer);
+                window._coursePreviewTimer = null;
+            }
+            document.getElementById('course-preview-area').classList.add('hidden');
+            document.getElementById('course-preview-error').classList.add('hidden');
+        };
 
         // Intercept graduate toggle forms to avoid page reload
         document.querySelectorAll('form[action="/admin/set_graduated"]').forEach(function(form) {
@@ -398,6 +818,347 @@
                     .catch(function() { btn.disabled = false; });
             });
         });
+
+        // ===== Exam Calendar =====
+        (async function() {
+            const container = document.getElementById('exam-calendar-container');
+            if (!container) return;
+            const MONTH_NAMES = ['January','February','March','April','May','June',
+                                 'July','August','September','October','November','December'];
+            const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+            function renderMonth(year, month, byDate) {
+                const wrap = document.createElement('div');
+                wrap.className = 'exam-cal-month';
+
+                const grid = document.createElement('div');
+                grid.className = 'exam-cal-grid';
+
+                for (const d of DOW) {
+                    const h = document.createElement('div');
+                    h.className = 'exam-cal-dow';
+                    h.textContent = d;
+                    grid.appendChild(h);
+                }
+
+                const firstDay = new Date(year, month - 1, 1).getDay();
+                const daysInMonth = new Date(year, month, 0).getDate();
+
+                for (let i = 0; i < firstDay; i++) {
+                    const empty = document.createElement('div');
+                    empty.className = 'exam-cal-day';
+                    grid.appendChild(empty);
+                }
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const ds = year + '-' + String(month).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+                    const dayExams = byDate[ds] || [];
+                    const cell = document.createElement('div');
+                    cell.className = 'exam-cal-day' + (dayExams.length ? ' has-exams' : '');
+
+                    const num = document.createElement('div');
+                    num.className = 'exam-cal-day-num';
+                    num.textContent = d;
+                    cell.appendChild(num);
+
+                    if (dayExams.length) {
+                        const chips = document.createElement('div');
+                        chips.className = 'exam-cal-chips';
+
+                        // Finals → one collapsed chip with all courses in the tooltip
+                        const finals = dayExams.filter(e => e.exam_type === 'final');
+                        if (finals.length) {
+                            const chip = document.createElement('span');
+                            chip.className = 'exam-cal-chip exam-cal-chip-final';
+                            chip.textContent = 'Finals';
+                            chip.title = finals.map(e => e.department + e.identifier + (e.title ? ' — ' + e.title : '')).join('\n');
+                            chips.appendChild(chip);
+                        }
+
+                        // Common hour → individual chips
+                        for (const e of dayExams.filter(e => e.exam_type === 'common_hour')) {
+                            const chip = document.createElement('span');
+                            chip.className = 'exam-cal-chip exam-cal-chip-common_hour';
+                            chip.textContent = e.department + e.identifier;
+                            chip.title = (e.title || e.department + e.identifier) + ' — common hour';
+                            chips.appendChild(chip);
+                        }
+
+                        cell.appendChild(chips);
+                    }
+
+                    grid.appendChild(cell);
+                }
+
+                wrap.appendChild(grid);
+                return wrap;
+            }
+
+            try {
+                const res = await fetch('/admin/api/calendar_exams');
+                if (!res.ok) throw new Error('Server error');
+                const exams = await res.json();
+
+                if (!exams.length) {
+                    container.innerHTML = '<p style="color:#888;font-size:13px;">No exams scheduled yet.</p>';
+                    return;
+                }
+
+                const byDate = {};
+                for (const e of exams) {
+                    byDate[e.date] = byDate[e.date] || [];
+                    byDate[e.date].push(e);
+                }
+
+                const monthSet = new Set(Object.keys(byDate).map(d => d.slice(0,7)));
+                const months = [...monthSet].sort();
+
+                // Default to current month if it has exams, else nearest future, else last
+                const todayYM = new Date().toISOString().slice(0, 7);
+                const defaultMonth = months.find(m => m >= todayYM) || months[months.length - 1];
+
+                container.innerHTML = '';
+
+                // Header: nav buttons + month selector + today + legend
+                const header = document.createElement('div');
+                header.className = 'exam-cal-header';
+
+                // Left side: prev / select / next / today
+                const nav = document.createElement('div');
+                nav.className = 'exam-cal-nav';
+
+                const prevBtn = document.createElement('button');
+                prevBtn.type = 'button';
+                prevBtn.className = 'exam-cal-nav-btn exam-cal-arrow-btn';
+                prevBtn.textContent = '‹';
+                nav.appendChild(prevBtn);
+
+                const sel = document.createElement('select');
+                sel.className = 'exam-cal-month-select';
+                for (const ym of months) {
+                    const [y, mo] = ym.split('-').map(Number);
+                    const opt = document.createElement('option');
+                    opt.value = ym;
+                    opt.textContent = MONTH_ABBR[mo - 1] + ' ' + y;
+                    if (ym === defaultMonth) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+                nav.appendChild(sel);
+
+                const nextBtn = document.createElement('button');
+                nextBtn.type = 'button';
+                nextBtn.className = 'exam-cal-nav-btn exam-cal-arrow-btn';
+                nextBtn.textContent = '›';
+                nav.appendChild(nextBtn);
+
+                const todayBtn = document.createElement('button');
+                todayBtn.type = 'button';
+                todayBtn.className = 'exam-cal-nav-btn exam-cal-today-btn';
+                todayBtn.textContent = 'Today';
+                nav.appendChild(todayBtn);
+
+                header.appendChild(nav);
+
+                // Right side: legend
+                const legend = document.createElement('div');
+                legend.className = 'exam-cal-legend';
+                legend.innerHTML =
+                    '<span class="exam-cal-chip exam-cal-chip-common_hour">Common Hour</span>' +
+                    '<span class="exam-cal-chip exam-cal-chip-final">Final</span>';
+                header.appendChild(legend);
+                container.appendChild(header);
+
+                // Month view area
+                const view = document.createElement('div');
+                container.appendChild(view);
+
+                function showMonth(ym) {
+                    const [y, mo] = ym.split('-').map(Number);
+                    view.innerHTML = '';
+                    view.appendChild(renderMonth(y, mo, byDate));
+                    sel.value = ym;
+                    prevBtn.disabled = months.indexOf(ym) === 0;
+                    nextBtn.disabled = months.indexOf(ym) === months.length - 1;
+                }
+
+                sel.addEventListener('change', function() { showMonth(this.value); });
+                prevBtn.addEventListener('click', function() {
+                    const idx = months.indexOf(sel.value);
+                    if (idx > 0) showMonth(months[idx - 1]);
+                });
+                nextBtn.addEventListener('click', function() {
+                    const idx = months.indexOf(sel.value);
+                    if (idx < months.length - 1) showMonth(months[idx + 1]);
+                });
+                todayBtn.addEventListener('click', function() {
+                    showMonth(defaultMonth);
+                });
+                showMonth(defaultMonth);
+            } catch (e) {
+                container.innerHTML = '<p style="color:#e74c3c;font-size:13px;">Failed to load exam schedule.</p>';
+            }
+        })();
+
+        // ===== Upcoming Exams list =====
+        (async function() {
+            const container = document.getElementById('upcoming-exams-container');
+            if (!container) return;
+            const MONTH_NAMES = ['January','February','March','April','May','June',
+                                 'July','August','September','October','November','December'];
+            try {
+                const res = await fetch('/admin/api/calendar_exams');
+                if (!res.ok) throw new Error('Server error');
+                const exams = await res.json();
+
+                const today = new Date().toISOString().slice(0, 10);
+                const upcoming = exams.filter(e => e.date >= today)
+                    .sort((a, b) => a.date.localeCompare(b.date) || a.department.localeCompare(b.department));
+
+                if (!upcoming.length) {
+                    container.innerHTML = '<p style="color:#888;font-size:13px;">No upcoming exams.</p>';
+                    return;
+                }
+
+                const list = document.createElement('div');
+                list.className = 'upcoming-exams-list';
+
+                let lastDate = null;
+                for (const e of upcoming) {
+                    if (e.date !== lastDate) {
+                        const [y, mo, d] = e.date.split('-').map(Number);
+                        const dateLabel = document.createElement('div');
+                        dateLabel.className = 'upcoming-exams-date';
+                        dateLabel.textContent = MONTH_NAMES[mo - 1] + ' ' + d + ', ' + y;
+                        list.appendChild(dateLabel);
+                        lastDate = e.date;
+                    }
+                    const item = document.createElement('div');
+                    item.className = 'upcoming-exam-item';
+                    const typeClass = e.exam_type === 'final' ? 'exam-cal-chip-final' : 'exam-cal-chip-common_hour';
+                    const typeLabel = e.exam_type === 'final' ? 'Final' : 'Common Hour';
+                    item.innerHTML =
+                        '<span class="exam-cal-chip ' + typeClass + '">' + typeLabel + '</span>' +
+                        '<span class="upcoming-exam-course">' + e.department + e.identifier + '</span>' +
+                        '<span class="upcoming-exam-title">' + (e.title || '') + '</span>';
+                    list.appendChild(item);
+                }
+                container.innerHTML = '';
+                container.appendChild(list);
+            } catch (e) {
+                container.innerHTML = '<p style="color:#e74c3c;font-size:13px;">Failed to load exams.</p>';
+            }
+        })();
+
+        // ===== Edit User Modal =====
+        function refreshRowAvatar(studentId, discordId) {
+            if (!discordId) return;
+            const row = document.querySelector('#user-table-body tr[data-student-id="' + studentId + '"]');
+            if (!row) return;
+            const avatarEl = row.querySelector('.user-table-avatar');
+            if (!avatarEl) return;
+            fetch('/api/discord_avatar/' + discordId)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.avatar_url) return;
+                    let img = avatarEl.querySelector('img');
+                    if (!img) {
+                        img = document.createElement('img');
+                        img.alt = '';
+                        avatarEl.insertBefore(img, avatarEl.firstChild);
+                    }
+                    img.src = data.avatar_url;
+                    img.style.display = 'block';
+                    const initials = avatarEl.querySelector('.user-table-avatar-initials');
+                    if (initials) initials.style.display = 'none';
+                })
+                .catch(() => {});
+        }
+
+        window.openEditModal = function(btn) {
+            document.getElementById('edit-user-id').value = btn.dataset.studentId;
+            document.getElementById('edit-first-name').value = btn.dataset.firstName;
+            document.getElementById('edit-last-name').value = btn.dataset.lastName;
+            document.getElementById('edit-discord-id').value = btn.dataset.discordId || '';
+            document.getElementById('edit-user-error').classList.add('hidden');
+            document.getElementById('edit-user-panel').classList.remove('hidden');
+            document.getElementById('edit-user-backdrop').classList.remove('hidden');
+            refreshRowAvatar(btn.dataset.studentId, btn.dataset.discordId);
+        };
+
+        window.closeEditModal = function() {
+            document.getElementById('edit-user-panel').classList.add('hidden');
+            document.getElementById('edit-user-backdrop').classList.add('hidden');
+        };
+
+        window.saveEditUser = async function() {
+            const studentId = document.getElementById('edit-user-id').value;
+            const firstName = document.getElementById('edit-first-name').value.trim();
+            const lastName = document.getElementById('edit-last-name').value.trim();
+            const discordId = document.getElementById('edit-discord-id').value.trim();
+            const errorEl = document.getElementById('edit-user-error');
+
+            if (!firstName || !lastName) {
+                errorEl.textContent = 'First and last name are required.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            if (discordId && !/^\d+$/.test(discordId)) {
+                errorEl.textContent = 'Discord ID must be numeric.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            const saveBtn = document.getElementById('edit-user-save-btn');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving…';
+            errorEl.classList.add('hidden');
+
+            try {
+                const formData = new FormData();
+                formData.append('target_id', studentId);
+                formData.append('first_name', firstName);
+                formData.append('last_name', lastName);
+                formData.append('discord_id', discordId);
+
+                const res = await fetch('/admin/api/edit_user', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errorEl.textContent = data.detail || 'Error saving changes.';
+                    errorEl.classList.remove('hidden');
+                    return;
+                }
+
+                // Update the name cell in the table row
+                const row = document.querySelector('#user-table-body tr[data-student-id="' + studentId + '"]');
+                if (row) {
+                    const nameCell = row.querySelector('.user-table-name-cell');
+                    if (nameCell) {
+                        // Update only the text node, preserving the avatar element
+                        const textNodes = [...nameCell.childNodes].filter(n => n.nodeType === Node.TEXT_NODE);
+                        textNodes.forEach(n => n.remove());
+                        nameCell.append(' ' + firstName + ' ' + lastName);
+                    }
+                    // Update the edit button's data attributes
+                    const editBtn = row.querySelector('.btn-edit');
+                    if (editBtn) {
+                        editBtn.dataset.firstName = firstName;
+                        editBtn.dataset.lastName = lastName;
+                        editBtn.dataset.discordId = discordId;
+                    }
+                    // If discord ID changed, refresh the avatar
+                    refreshRowAvatar(studentId, discordId);
+                }
+                closeEditModal();
+            } catch (err) {
+                errorEl.textContent = 'Network error. Please try again.';
+                errorEl.classList.remove('hidden');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Changes';
+            }
+        };
     </script>
 </body>
 </html>

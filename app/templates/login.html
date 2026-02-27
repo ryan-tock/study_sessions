@@ -62,6 +62,7 @@
 
         let fuse = null;
         let loadingUsers = false;
+        const _avatarStatus = new Map(); // student_id -> 'loaded' | 'error'
 
         async function ensureUsersLoaded() {
             if (fuse !== null) return;
@@ -129,7 +130,52 @@
             users.forEach(user => {
                 const item = document.createElement('div');
                 item.className = 'search-item';
-                item.textContent = `${user.first_name} ${user.last_name}`;
+                const initials = (user.first_name[0] + (user.last_name?.[0] || '')).toUpperCase();
+
+                if (!user.student_id) {
+                    const ph = document.createElement('div');
+                    ph.className = 'search-item-avatar search-item-avatar-placeholder';
+                    ph.textContent = initials;
+                    item.appendChild(ph);
+                } else {
+                    const cached = _avatarStatus.get(user.student_id);
+                    if (cached === 'error') {
+                        // Known 404 — show placeholder directly, no request
+                        const ph = document.createElement('div');
+                        ph.className = 'search-item-avatar search-item-avatar-placeholder';
+                        ph.textContent = initials;
+                        item.appendChild(ph);
+                    } else if (cached === 'loaded') {
+                        // Known hit — show img, browser cache handles it
+                        const img = document.createElement('img');
+                        img.className = 'search-item-avatar';
+                        img.src = '/avatar/' + user.student_id;
+                        img.alt = '';
+                        item.appendChild(img);
+                    } else {
+                        // Unknown — try once; cache the outcome
+                        const img = document.createElement('img');
+                        img.className = 'search-item-avatar';
+                        img.alt = '';
+                        const ph = document.createElement('div');
+                        ph.className = 'search-item-avatar search-item-avatar-placeholder';
+                        ph.textContent = initials;
+                        ph.style.display = 'none';
+                        img.onload = () => { _avatarStatus.set(user.student_id, 'loaded'); };
+                        img.onerror = () => {
+                            _avatarStatus.set(user.student_id, 'error');
+                            img.style.display = 'none';
+                            ph.style.display = 'flex';
+                        };
+                        img.src = '/avatar/' + user.student_id; // set after handlers
+                        item.appendChild(img);
+                        item.appendChild(ph);
+                    }
+                }
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = `${user.first_name} ${user.last_name}`;
+                item.appendChild(nameSpan);
                 item.addEventListener('click', () => selectUser(user));
                 dropdown.appendChild(item);
             });
@@ -141,7 +187,7 @@
             dropdown.innerHTML = '';
         }
 
-        function selectUser(user) {
+        async function selectUser(user) {
             document.getElementById('first_name').value = user.first_name;
             document.getElementById('last_name').value = user.last_name;
             document.getElementById('selected-name').textContent = `${user.first_name} ${user.last_name}`;
@@ -150,15 +196,33 @@
             const placeholder = document.getElementById('avatar-placeholder');
             avatarImg.classList.add('hidden');
             placeholder.classList.add('hidden');
-
-            avatarImg.onload = () => { avatarImg.classList.remove('hidden'); };
-            avatarImg.onerror = () => { avatarImg.classList.add('hidden'); showInitialsPlaceholder(user, placeholder); };
-            avatarImg.src = '/avatar/' + user.student_id;
+            showInitialsPlaceholder(user, placeholder);
 
             userSelectSection.classList.add('hidden');
             selectedSection.classList.remove('hidden');
             hideDropdown();
             document.getElementById('password').focus();
+
+            if (!user.student_id || !user.discord_id) return;
+
+            function tryLoad(bust) {
+                return new Promise(resolve => {
+                    avatarImg.onload = () => resolve(true);
+                    avatarImg.onerror = () => resolve(false);
+                    avatarImg.src = '/avatar/' + user.student_id + (bust ? '?t=' + Date.now() : '');
+                });
+            }
+
+            let ok = await tryLoad(false);
+            if (!ok) {
+                try { await fetch('/api/avatar/fetch/' + user.student_id, { method: 'POST' }); } catch(e) {}
+                ok = await tryLoad(true);
+            }
+            if (ok) {
+                avatarImg.classList.remove('hidden');
+                placeholder.classList.add('hidden');
+                _avatarStatus.set(user.student_id, 'loaded');
+            }
         }
 
         function showInitialsPlaceholder(user, el) {
