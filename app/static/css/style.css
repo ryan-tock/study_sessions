@@ -46,7 +46,8 @@ label {
 }
 
 input[type="text"],
-input[type="password"] {
+input[type="password"],
+input[type="datetime-local"] {
     width: 100%;
     padding: 10px;
     border: 1px solid #ddd;
@@ -56,7 +57,8 @@ input[type="password"] {
 }
 
 input[type="text"]:focus,
-input[type="password"]:focus {
+input[type="password"]:focus,
+input[type="datetime-local"]:focus {
     outline: none;
     border-color: #3498db;
 }
@@ -1145,16 +1147,6 @@ button:disabled {
 .wipe-badge-courses { background-color: #fef9c3; color: #854d0e; }
 .wipe-badge-cache { background-color: #f3e8ff; color: #6b21a8; }
 
-/* Course search (user portal) */
-.course-search-section {
-    margin-top: 28px;
-}
-
-.course-search-section h2 {
-    color: #2c3e50;
-    margin-bottom: 14px;
-}
-
 .course-search-input-wrap {
     position: relative;
     max-width: 520px;
@@ -1227,6 +1219,16 @@ button:disabled {
 }
 
 /* User portal sections */
+#report-exam-section {
+    margin-bottom: 28px;
+}
+#assessments-section {
+    margin-bottom: 28px;
+}
+#study-sessions-section {
+    margin-bottom: 8px;
+}
+
 .user-sections-row {
     display: flex;
     gap: 24px;
@@ -1322,12 +1324,6 @@ button:disabled {
     flex-shrink: 0;
     background: #dbeafe;
     color: #1e40af;
-}
-
-.tutor-section-desc {
-    font-size: 13px;
-    color: #888;
-    margin: -8px 0 10px;
 }
 
 .tutor-conf-edit {
@@ -1504,6 +1500,43 @@ button:disabled {
 .import-column .admin-section {
     flex: 1;
     margin-top: 0;
+}
+
+/* Semester changeover checklist */
+.semester-checklist {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-left: 4px solid #3b82f6;
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    font-size: 14px;
+    color: #1e3a5f;
+}
+.semester-checklist strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 15px;
+    color: #1e40af;
+}
+.semester-checklist ol {
+    margin: 0 0 10px 20px;
+    padding: 0;
+    color: #334155;
+}
+.semester-checklist li {
+    margin-bottom: 4px;
+}
+.semester-checklist-dismiss {
+    background: none;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+    font-size: 12px;
+    padding: 3px 10px;
+}
+.semester-checklist-dismiss:hover {
+    background: #e2e8f0;
+    color: #334155;
 }
 
 /* Manage Users full-width bottom section */
@@ -1684,6 +1717,16 @@ button:disabled {
     color: #1e40af;
 }
 
+.exam-cal-chip-in_class {
+    background: #e8daef;
+    color: #6c3483;
+}
+
+.exam-cal-chip-quiz {
+    background: #d5f5e3;
+    color: #1e8449;
+}
+
 /* Sharing / privacy options */
 .sharing-options {
     display: flex;
@@ -1738,4 +1781,272 @@ button:disabled {
 .exam-cal-chip-final {
     background: #fef3c7;
     color: #92400e;
+}
+
+/* Assessment report form */
+.assessment-report-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.assessment-report-row select,
+.assessment-report-row input[type="date"] {
+    width: auto;
+    font-size: 14px;
+    padding: 7px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+.assessment-report-row select {
+    max-width: 280px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    padding-right: 28px;
+}
+#assessment-course-select {
+    min-width: 280px;
+}
+#assessment-type-select {
+    min-width: 140px;
+}
+
+/* Assessment type badges */
+.assessment-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.assessment-type-test {
+    background: #e8daef;
+    color: #6c3483;
+}
+
+.assessment-type-quiz {
+    background: #d5f5e3;
+    color: #1e8449;
+}
+
+.assessment-type-final {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.assessment-type-common {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+/* Unconfirmed assessment */
+.assessment-unconfirmed {
+    border-left: 3px solid #f39c12;
+    opacity: 0.75;
+}
+
+.assessment-pending-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: #f39c12;
+    flex-shrink: 0;
+}
+
+/* Assessment date group headers */
+.assessment-date-header {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #888;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+}
+
+.assessment-date-header:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
+/* Dispute button */
+.assessment-dispute-btn {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: none;
+    color: #bbb;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    cursor: pointer;
+    width: auto;
+    flex-shrink: 0;
+}
+
+.assessment-dispute-btn:hover {
+    background: #fee2e2;
+    color: #c0392b;
+    border-color: #e74c3c;
+}
+
+/* ── Course links ── */
+.course-search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 100;
+    width: 100%;
+    display: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.course-search-dropdown:not(.hidden) { display: block; }
+.course-search-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.course-search-item:hover { background: #f0f4ff; }
+.course-link-chip {
+    display: inline-block;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+}
+.course-link-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+.course-link-group:last-child { border-bottom: none; }
+.course-link-arrow { color: #aaa; font-size: 14px; }
+.course-link-suggestion {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
+    color: #555;
+}
+.course-link-suggestion .btn-action {
+    padding: 2px 8px;
+    font-size: 11px;
+    width: auto;
+}
+
+/* Link type badges */
+.link-type-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+}
+.link-type-strong { background: #dbeafe; color: #1e40af; }
+.link-type-weak { background: #fef3c7; color: #92400e; }
+
+.link-help-btn {
+    width: 18px; height: 18px; padding: 0; border-radius: 50%;
+    font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+    background: #e0e0e0; color: #555; border: none; cursor: pointer;
+}
+.link-help-btn:hover { background: #ccc; }
+.link-help-detail {
+    background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px;
+    padding: 10px 12px; margin-top: 6px; font-size: 12px; line-height: 1.5; color: #444;
+}
+.link-help-detail p { margin-bottom: 6px; }
+.link-help-detail p:last-child { margin-bottom: 0; }
+
+/* Link indicator on exam items */
+.course-link-indicator { font-size: 12px; margin-left: 3px; cursor: default; }
+
+/* Student-facing tutor chips under enrolled courses */
+.course-tutors-row {
+    padding: 2px 0 6px 28px;
+    font-size: 12px;
+    color: #666;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+}
+.tutors-label { font-weight: 500; color: #888; flex-shrink: 0; }
+.tutor-chip {
+    display: inline-block;
+    background: #f0f4ff;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    padding: 1px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+/* Study session items in user portal */
+.study-session-item { flex-wrap: wrap; gap: 6px; }
+.study-session-meta { font-size: 12px; color: #666; }
+.study-session-tutor { font-size: 13px; color: #3498db; font-weight: 500; }
+.study-session-tutor.is-tutor { font-size: 14px; font-weight: 700; color: #2980b9; }
+
+/* ── User portal mobile ── */
+@media (max-width: 640px) {
+    .login-container { margin-top: 40px; padding: 24px; }
+    .portal-container { padding: 10px; }
+    .navbar {
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px;
+        align-items: stretch;
+    }
+    .navbar h1 { font-size: 20px; text-align: center; }
+    .nav-links { justify-content: center; flex-wrap: wrap; }
+    .content { padding: 16px; }
+    .content h2 { font-size: 17px; margin-bottom: 12px; }
+
+    /* Report Exam: stack controls */
+    .assessment-report-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .assessment-report-row select,
+    .assessment-report-row input[type="date"] {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+    #assessment-course-select { min-width: 0; }
+    #assessment-type-select { min-width: 0; }
+
+    /* My Classes / I Can Tutor: stack vertically */
+    .user-sections-row {
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    /* Course search */
+    .course-search-input-wrap { max-width: none; }
+    .course-search-results { max-width: none; }
+    .course-search-item {
+        grid-template-columns: 90px 1fr;
+        gap: 6px;
+        padding: 8px 10px;
+    }
+    .course-search-meta { display: none; }
+
+    /* Tutor chips */
+    .course-tutors-row { padding-left: 10px; }
 }

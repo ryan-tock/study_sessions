@@ -1,5 +1,7 @@
 # Study Sessions
 
+A web app for coordinating study sessions and tutoring among students. Admins import courses and exam schedules; students enroll in courses and declare tutoring capabilities; the system matches tutors to upcoming exams.
+
 ## Requirements
 
 - Python 3.14+
@@ -17,9 +19,7 @@ pip install -r requirements.txt
 
 **2. Configure environment**
 
-Copy `.env.example` to `.env`. Leave `DATABASE_URL` blank for now — you'll fill it in after the next step.
-
-Required variables:
+Copy `.env.example` to `.env`. Leave `DATABASE_URL` and `SECRET_KEY` blank for now -- `reset.sh` will generate them.
 
 | Variable | Description |
 |---|---|
@@ -37,9 +37,9 @@ Required variables:
 ./reset.sh
 ```
 
-This drops and recreates the `study_sessions` database, runs `init.sql`, creates an `app_user` with a random password, and inserts the root admin account using `ROOT_PASSWORD`. It prints the `DATABASE_URL` and `SECRET_KEY` values to copy into your env file.
+This drops and recreates the `study_sessions` database, runs `init.sql`, creates an `app_user` with a random password, and inserts the root admin account using `ROOT_PASSWORD`. It prints the `DATABASE_URL` and `SECRET_KEY` values to paste into `.env`.
 
-`reset.sh` automatically uses the current system user as the PostgreSQL superuser (`$(whoami)`). If your PostgreSQL superuser is a different account, set `DB_DEV_USER` in your `.env` file to override it.
+`reset.sh` auto-detects the PostgreSQL superuser (tries `$(whoami)`, then `postgres`). Override with `DB_DEV_USER` in `.env` if needed.
 
 **4. Start the server**
 
@@ -47,11 +47,20 @@ This drops and recreates the `study_sessions` database, runs `init.sql`, creates
 python -m app.main
 ```
 
-The app runs on `http://localhost:8000`. Log in with username `root` and the `ROOT_PASSWORD` you set.
+The app runs on `http://localhost:8000`. Log in as `root` with the `ROOT_PASSWORD` you set.
+
+## Testing
+
+```bash
+pytest
+```
+
+No database needed -- tests mock the connection pool.
 
 ## Notes
 
-- `reset.sh` wipes the entire database. Use `/admin/backup` to save data before running it.
-- Avatars are cached in `app/static/avatars/` and are excluded from git. `reset.sh` clears them automatically.
-- Term data (exams, courses) is stored in `data/{year}_{letter}/` (e.g. `data/2026_A/` for Spring 2026, `data/2025_B/` for Fall 2025). Seasons: A = spring, B = fall.
-- User/tutor backups are stored in `data/backups/{timestamp}/` and can be browsed, restored, or deleted from the admin portal.
+- `reset.sh` wipes the entire database. Back up via the admin portal first.
+- Avatars are cached in `app/static/avatars/` and excluded from git.
+- Term data lives in `data/{year}_{letter}/` (e.g. `2026_A` = Spring 2026). A = spring, B = fall.
+- Backups are stored in `data/backups/{timestamp}/` and managed from the admin portal.
+- See `docs/` for detailed architecture and API documentation.

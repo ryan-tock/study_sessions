@@ -109,7 +109,8 @@ def backup() -> str:
 
             # All exams
             cur.execute("""
-                SELECT c.department, c.identifier, e.test_date, e.exam_type
+                SELECT c.department, c.identifier, e.test_date, e.exam_type,
+                       e.confirmed, e.disputed, e.deleted
                 FROM exams e
                 JOIN courses c ON e.course_id = c.course_id
                 ORDER BY e.test_date, c.department, c.identifier
@@ -124,6 +125,15 @@ def backup() -> str:
                 ORDER BY (last_offered).academic_year, (last_offered).season, department, identifier
             """)
             course_rows = cur.fetchall()
+
+            # Course links (term-independent)
+            cur.execute("""
+                SELECT ca.department, ca.identifier, cb.department, cb.identifier, cl.link_type
+                FROM course_links cl
+                JOIN courses ca ON cl.course_id_a = ca.course_id
+                JOIN courses cb ON cl.course_id_b = cb.course_id
+            """)
+            link_rows = cur.fetchall()
 
     # ── Static users ──────────────────────────────────────────────────────────
     users = [
@@ -143,6 +153,18 @@ def backup() -> str:
     with open(os.path.join(backup_dir, 'users.json'), 'w') as f:
         json.dump(users, f, indent=2)
 
+    # ── Course links (term-independent, stored in backup root) ────────────────
+    links_data = [
+        {
+            'a_department': r[0], 'a_identifier': r[1],
+            'b_department': r[2], 'b_identifier': r[3],
+            'link_type': r[4],
+        }
+        for r in link_rows
+    ]
+    with open(os.path.join(backup_dir, 'course_links.json'), 'w') as f:
+        json.dump(links_data, f, indent=2)
+
     # ── Group exams and courses by term ───────────────────────────────────────
     exams_by_term: dict[tuple, list] = {}
     for r in exam_rows:
@@ -153,6 +175,9 @@ def backup() -> str:
             'identifier': r[1],
             'date': test_date.isoformat(),
             'exam_type': r[3],
+            'confirmed': r[4],
+            'disputed': r[5],
+            'deleted': r[6],
         })
 
     courses_by_term: dict[tuple, list] = {}
@@ -299,6 +324,7 @@ def _wipe_for_restore(user: dict) -> None:
             cur.execute("DELETE FROM enrollments")
             cur.execute("DELETE FROM tutors")
             cur.execute("DELETE FROM exams")
+            cur.execute("DELETE FROM course_links")
             # Delete non-root students (cascades to their student_auth rows)
             cur.execute("""
                 DELETE FROM students
@@ -319,7 +345,9 @@ _RESTORE_PDF_FILES = [
 ]
 
 
-def _restore_exam_entry(cur, dept: str, ident: str, date: str, exam_type: str, creator_id: int) -> bool:
+def _restore_exam_entry(cur, dept: str, ident: str, date: str, exam_type: str, creator_id: int,
+                        confirmed: bool = True, disputed: bool = False,
+                        deleted: bool = False) -> bool:
     """Look up course by dept+ident and insert exam. Returns True if inserted."""
     cur.execute(
         """SELECT course_id FROM courses
@@ -336,10 +364,10 @@ def _restore_exam_entry(cur, dept: str, ident: str, date: str, exam_type: str, c
     if not row:
         return False
     cur.execute(
-        """INSERT INTO exams (course_id, test_date, exam_type, creator_id)
-           VALUES (%s, %s::date, %s::exam_type, %s)
-           ON CONFLICT (course_id, test_date, exam_type) DO NOTHING""",
-        (row[0], date, exam_type, creator_id)
+        """INSERT INTO exams (course_id, test_date, exam_type, creator_id, confirmed, disputed, deleted)
+           VALUES (%s, %s::date, %s::exam_type, %s, %s, %s, %s)
+           ON CONFLICT (course_id, test_date, exam_type) WHERE NOT deleted DO NOTHING""",
+        (row[0], date, exam_type, creator_id, confirmed, disputed, deleted)
     )
     return cur.rowcount > 0
 
@@ -585,7 +613,9 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                         exams = json.load(f)
                     for e in exams:
                         if _restore_exam_entry(cur, e['department'], e['identifier'],
-                                               e['date'], e['exam_type'], user['student_id']):
+                                               e['date'], e['exam_type'], user['student_id'],
+                                               e.get('confirmed', True), e.get('disputed', False),
+                                               e.get('deleted', False)):
                             found_data = True
                 else:
                     for pdf_name, exam_type in _RESTORE_PDF_FILES:
@@ -607,7 +637,39 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                             pass
         conn.commit()
 
-    # ── 6. Sync backup's term data back to data/{term}/ ───────────────────────
+    # ── 6. Restore course links ──────────────────────────────────────────────
+    links_file = None
+    if users_file:
+        candidate = os.path.join(os.path.dirname(users_file), 'course_links.json')
+        if os.path.exists(candidate):
+            links_file = candidate
+    if links_file:
+        with open(links_file) as f:
+            links = json.load(f)
+        if links:
+            with get_db_for_user(user) as conn:
+                with conn.cursor() as cur:
+                    for link in links:
+                        cur.execute(
+                            "SELECT course_id FROM courses WHERE department = %s AND identifier = %s LIMIT 1",
+                            (link['a_department'], link['a_identifier'])
+                        )
+                        row_a = cur.fetchone()
+                        cur.execute(
+                            "SELECT course_id FROM courses WHERE department = %s AND identifier = %s LIMIT 1",
+                            (link['b_department'], link['b_identifier'])
+                        )
+                        row_b = cur.fetchone()
+                        if row_a and row_b:
+                            lo, hi = min(row_a[0], row_b[0]), max(row_a[0], row_b[0])
+                            lt = link.get('link_type', 'strong')
+                            cur.execute(
+                                "INSERT INTO course_links (course_id_a, course_id_b, link_type) VALUES (%s, %s, %s::link_type) ON CONFLICT DO NOTHING",
+                                (lo, hi, lt)
+                            )
+                conn.commit()
+
+    # ── 7. Sync backup's term data back to data/{term}/ ───────────────────────
     # After restore, overwrite the on-disk term dir with the backup's snapshot
     # so the filesystem reflects exactly what was restored.
     if bt_subdir and bt_name:

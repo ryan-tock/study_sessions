@@ -10,10 +10,32 @@ connection_pool = pool.ThreadedConnectionPool(
 
 @contextmanager
 def get_db():
+    """Get a DB connection that bypasses RLS (for admin/internal operations).
+
+    Sets app.is_admin='true' so RLS policies allow full access, then
+    clears it before returning the connection to the pool.
+    """
     conn = connection_pool.getconn()
     try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT set_config('app.is_admin', 'true', false)"
+            )
+        conn.commit()
         yield conn
     finally:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT set_config('app.is_admin', 'false', false)"
+                )
+            conn.commit()
+        except Exception:
+            pass
         connection_pool.putconn(conn)
 
 

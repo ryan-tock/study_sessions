@@ -11,6 +11,7 @@ Two phases:
 3. load_courses_from_cache() — parse already-saved files (no network)
 """
 import asyncio
+import html as html_mod
 import os
 import re
 import shutil
@@ -109,7 +110,7 @@ def parse_dept_html(html: str) -> list[dict]:
         identifier = code_str[len(dept_code):]
         if not identifier or not identifier[0].isdigit():
             continue
-        title = parts[1]
+        title = html_mod.unescape(parts[1])
         hours = parts[2].split()[0] if parts[2] else ""
         key = (dept_code, identifier)
         if key not in seen:

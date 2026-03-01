@@ -44,12 +44,32 @@
             <p class="portal-message">{{ message }}</p>
             {% endif %}
 
-            <div class="course-search-section">
-                <h2>Course Search</h2>
-                <div class="course-search-input-wrap">
-                    <input type="text" id="course-search-input" placeholder="Search by dept + code (e.g. MATH201) or title…" autocomplete="off">
+            <!-- Report Exam -->
+            <div class="user-section" id="report-exam-section">
+                <h2>Report Exam</h2>
+                <div class="assessment-report-row">
+                    <select id="assessment-course-select">
+                        <option value="" disabled selected>Select course...</option>
+                    </select>
+                    <input type="date" id="assessment-date-input">
+                    <select id="assessment-type-select">
+                        <option value="in_class">In-Class Test</option>
+                        <option value="quiz">Quiz</option>
+                    </select>
+                    <button type="button" id="assessment-report-btn" class="btn-action btn-elevate" disabled>Report</button>
                 </div>
-                <div id="course-search-results" class="course-search-results hidden"></div>
+            </div>
+
+            <!-- Upcoming Exams -->
+            <div class="user-section" id="assessments-section">
+                <h2>Upcoming Exams</h2>
+                <div id="assessments-list" class="user-course-list"></div>
+            </div>
+
+            <!-- Study Sessions -->
+            <div class="user-section" id="study-sessions-section">
+                <h2>Study Sessions</h2>
+                <div id="study-sessions-list" class="user-course-list"></div>
             </div>
 
             <div class="user-sections-row">
@@ -66,7 +86,6 @@
                 <!-- I Can Tutor -->
                 <div class="user-section" id="i-can-tutor-section">
                     <h2>I Can Tutor</h2>
-                    <p class="tutor-section-desc">Courses you're comfortable helping others with. Rate your confidence 1–10.</p>
                     <div class="course-search-input-wrap">
                         <input type="text" id="tutor-search-input" placeholder="Add a course…" autocomplete="off">
                     </div>
@@ -92,370 +111,6 @@
         </div>
     </div>
 
-    <script>
-        window.toggleAvatarMenu = function() {
-            document.getElementById('avatar-menu').classList.toggle('hidden');
-        };
-        document.addEventListener('click', function(e) {
-            if (!e.target.closest('.nav-avatar-wrapper')) {
-                document.getElementById('avatar-menu').classList.add('hidden');
-            }
-        });
-
-        function escHtml(str) {
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
-        }
-
-        (async function() {
-            // ── Load courses (shared across all search sections) ──
-            let allCourses = [];
-            let fuse = null;
-            try {
-                const res = await fetch('/api/courses');
-                allCourses = await res.json();
-                fuse = new Fuse(allCourses, {
-                    keys: [
-                        { name: 'combined', weight: 2 },
-                        { name: 'identifier', weight: 1.5 },
-                        { name: 'department', weight: 1 },
-                        { name: 'title', weight: 1 },
-                    ],
-                    threshold: 0.35,
-                    includeScore: true,
-                    minMatchCharLength: 2,
-                });
-            } catch (e) {
-                console.warn('Failed to load courses:', e);
-            }
-
-            function fuseSearch(q) {
-                return fuse ? fuse.search(q).map(r => r.item) : [];
-            }
-
-            function bindSearch(inputId, resultsId, sectionId, renderFn) {
-                const input = document.getElementById(inputId);
-                const resultsEl = document.getElementById(resultsId);
-                input.addEventListener('input', function() {
-                    const q = this.value.trim();
-                    if (!q || !fuse) { resultsEl.classList.add('hidden'); return; }
-                    renderFn(fuseSearch(q), resultsEl);
-                });
-                input.addEventListener('focus', function() {
-                    if (this.value.trim() && fuse) renderFn(fuseSearch(this.value.trim()), resultsEl);
-                });
-                document.addEventListener('click', function(e) {
-                    if (!e.target.closest('#' + sectionId) && !e.target.closest('#' + resultsId)) {
-                        resultsEl.classList.add('hidden');
-                    }
-                });
-            }
-
-            // ── Course Search (general browse, no action) ──
-            bindSearch('course-search-input', 'course-search-results', 'course-search-section',
-                function(courses, resultsEl) {
-                    if (!courses.length) {
-                        resultsEl.innerHTML = '<div class="course-search-empty">No courses found.</div>';
-                    } else {
-                        resultsEl.innerHTML = courses.slice(0, 50).map(c => `
-                            <div class="course-search-item">
-                                <span class="course-search-code">${escHtml(c.department)} ${escHtml(c.identifier)}</span>
-                                <span class="course-search-title">${escHtml(c.title || '')}</span>
-                                <span class="course-search-meta">${c.semester_hours ? escHtml(c.semester_hours) + ' cr' : ''}</span>
-                            </div>
-                        `).join('');
-                    }
-                    resultsEl.classList.remove('hidden');
-                }
-            );
-
-            // ── My Classes ──
-            (function() {
-                const input = document.getElementById('enroll-search-input');
-                const resultsEl = document.getElementById('enroll-search-results');
-                const listEl = document.getElementById('enrolled-list');
-
-                async function loadEnrollments() {
-                    try {
-                        const res = await fetch('/api/my/enrollments');
-                        renderEnrolled(await res.json());
-                    } catch (e) { console.warn('Failed to load enrollments:', e); }
-                }
-
-                function renderEnrolled(courses) {
-                    if (!courses.length) {
-                        listEl.innerHTML = '<div class="user-course-empty">No classes added yet.</div>';
-                        return;
-                    }
-                    listEl.innerHTML = courses.map(c => `
-                        <div class="user-course-item">
-                            <span class="user-course-code">${escHtml(c.department)} ${escHtml(c.identifier)}</span>
-                            <span class="user-course-title">${escHtml(c.title || '')}</span>
-                            <button type="button" class="user-course-remove" data-id="${c.course_id}">✕</button>
-                        </div>
-                    `).join('');
-                    listEl.querySelectorAll('.user-course-remove').forEach(btn => {
-                        btn.addEventListener('click', () => removeEnrollment(parseInt(btn.dataset.id, 10)));
-                    });
-                }
-
-                async function removeEnrollment(courseId) {
-                    try {
-                        await fetch(`/api/my/enrollments/${courseId}`, { method: 'DELETE' });
-                        await loadEnrollments();
-                    } catch (e) { console.warn('Failed to remove enrollment:', e); }
-                }
-
-                async function addEnrollment(courseId) {
-                    resultsEl.classList.add('hidden');
-                    input.value = '';
-                    try {
-                        const form = new FormData();
-                        form.append('course_id', courseId);
-                        await fetch('/api/my/enrollments', { method: 'POST', body: form });
-                        await loadEnrollments();
-                    } catch (e) { console.warn('Failed to add enrollment:', e); }
-                }
-
-                bindSearch('enroll-search-input', 'enroll-search-results', 'my-classes-section',
-                    function(courses, resultsEl) {
-                        if (!courses.length) {
-                            resultsEl.innerHTML = '<div class="course-search-empty">No courses found.</div>';
-                        } else {
-                            resultsEl.innerHTML = courses.slice(0, 30).map(c => `
-                                <div class="course-search-item course-search-item-action" data-id="${c.course_id}">
-                                    <span class="course-search-code">${escHtml(c.department)} ${escHtml(c.identifier)}</span>
-                                    <span class="course-search-title">${escHtml(c.title || '')}</span>
-                                    <span class="course-search-meta">${c.semester_hours ? escHtml(c.semester_hours) + ' cr' : ''}</span>
-                                </div>
-                            `).join('');
-                            resultsEl.querySelectorAll('.course-search-item-action').forEach(el => {
-                                el.addEventListener('click', () => addEnrollment(parseInt(el.dataset.id, 10)));
-                            });
-                        }
-                        resultsEl.classList.remove('hidden');
-                    }
-                );
-
-                loadEnrollments();
-            })();
-
-            // ── I Can Tutor ──
-            (function() {
-                const input = document.getElementById('tutor-search-input');
-                const resultsEl = document.getElementById('tutor-search-results');
-                const listEl = document.getElementById('tutor-list');
-                const panel = document.getElementById('tutor-add-panel');
-                let selectedCourseId = null;
-
-                async function loadTutorCaps() {
-                    try {
-                        const res = await fetch('/api/my/tutor_capabilities');
-                        renderTutorCaps(await res.json());
-                    } catch (e) { console.warn('Failed to load tutor capabilities:', e); }
-                }
-
-                function confidenceStyle(n) {
-                    if (n >= 8) return 'background:#dcfce7;color:#166534';
-                    if (n >= 5) return 'background:#fef9c3;color:#854d0e';
-                    return 'background:#fee2e2;color:#991b1b';
-                }
-
-                function renderTutorCaps(courses) {
-                    if (!courses.length) {
-                        listEl.innerHTML = '<div class="user-course-empty">No courses added yet.</div>';
-                        return;
-                    }
-                    listEl.innerHTML = courses.map(c => {
-                        const conf = c.confidence ?? 1;
-                        const style = confidenceStyle(conf);
-                        return `
-                            <div class="user-course-item" data-id="${c.course_id}">
-                                <span class="user-course-code">${escHtml(c.department)} ${escHtml(c.identifier)}</span>
-                                <span class="user-course-title">${escHtml(c.title || '')}</span>
-                                <span class="confidence-badge tutor-conf-display" style="${style}" title="Confidence: ${conf}/10">${conf}</span>
-                                <input type="number" class="tutor-conf-input hidden" min="1" max="10" value="${conf}">
-                                <button type="button" class="btn-action tutor-conf-save hidden">Save</button>
-                                <button type="button" class="user-course-remove tutor-conf-cancel hidden">✕</button>
-                                <button type="button" class="tutor-conf-edit" title="Edit confidence">✎</button>
-                                <button type="button" class="user-course-remove tutor-remove-btn">✕</button>
-                            </div>
-                        `;
-                    }).join('');
-                    listEl.querySelectorAll('.tutor-remove-btn').forEach(btn => {
-                        btn.addEventListener('click', () => {
-                            const id = parseInt(btn.closest('[data-id]').dataset.id, 10);
-                            removeTutorCap(id);
-                        });
-                    });
-                    listEl.querySelectorAll('.tutor-conf-edit').forEach(btn => {
-                        btn.addEventListener('click', () => {
-                            const item = btn.closest('.user-course-item');
-                            item.querySelector('.tutor-conf-display').classList.add('hidden');
-                            item.querySelector('.tutor-conf-edit').classList.add('hidden');
-                            item.querySelector('.tutor-remove-btn').classList.add('hidden');
-                            item.querySelector('.tutor-conf-input').classList.remove('hidden');
-                            item.querySelector('.tutor-conf-save').classList.remove('hidden');
-                            item.querySelector('.tutor-conf-cancel').classList.remove('hidden');
-                            item.querySelector('.tutor-conf-input').focus();
-                        });
-                    });
-                    listEl.querySelectorAll('.tutor-conf-cancel').forEach(btn => {
-                        btn.addEventListener('click', () => {
-                            const item = btn.closest('.user-course-item');
-                            item.querySelector('.tutor-conf-display').classList.remove('hidden');
-                            item.querySelector('.tutor-conf-edit').classList.remove('hidden');
-                            item.querySelector('.tutor-remove-btn').classList.remove('hidden');
-                            item.querySelector('.tutor-conf-input').classList.add('hidden');
-                            item.querySelector('.tutor-conf-save').classList.add('hidden');
-                            item.querySelector('.tutor-conf-cancel').classList.add('hidden');
-                        });
-                    });
-                    listEl.querySelectorAll('.tutor-conf-save').forEach(btn => {
-                        btn.addEventListener('click', async () => {
-                            const item = btn.closest('.user-course-item');
-                            const courseId = parseInt(item.dataset.id, 10);
-                            const val = parseInt(item.querySelector('.tutor-conf-input').value, 10);
-                            if (isNaN(val) || val < 1 || val > 10) {
-                                item.querySelector('.tutor-conf-input').focus();
-                                return;
-                            }
-                            const form = new FormData();
-                            form.append('course_id', courseId);
-                            form.append('confidence', val);
-                            await fetch('/api/my/tutor_capabilities', { method: 'POST', body: form });
-                            await loadTutorCaps();
-                        });
-                    });
-                    listEl.querySelectorAll('.tutor-conf-input').forEach(inp => {
-                        inp.addEventListener('keydown', function(e) {
-                            if (e.key === 'Enter') inp.closest('.user-course-item').querySelector('.tutor-conf-save').click();
-                            if (e.key === 'Escape') inp.closest('.user-course-item').querySelector('.tutor-conf-cancel').click();
-                        });
-                    });
-                }
-
-                async function removeTutorCap(courseId) {
-                    try {
-                        await fetch(`/api/my/tutor_capabilities/${courseId}`, { method: 'DELETE' });
-                        await loadTutorCaps();
-                        await loadRecommendations();
-                    } catch (e) { console.warn('Failed to remove tutor capability:', e); }
-                }
-
-                async function loadRecommendations() {
-                    try {
-                        const res = await fetch('/api/my/tutor_recommendations');
-                        renderRecommendations(await res.json());
-                    } catch (e) { console.warn('Failed to load recommendations:', e); }
-                }
-
-                function renderRecommendations(courses) {
-                    const container = document.getElementById('tutor-recommendations');
-                    const listEl = document.getElementById('tutor-rec-list');
-                    if (!courses.length) {
-                        container.classList.add('hidden');
-                        return;
-                    }
-                    container.classList.remove('hidden');
-                    listEl.innerHTML = courses.map(c => `
-                        <div class="tutor-rec-item">
-                            <span class="user-course-code">${escHtml(c.department)} ${escHtml(c.identifier)}</span>
-                            <span class="user-course-title">${escHtml(c.title || '')}</span>
-                            <button type="button" class="btn-action btn-elevate tutor-rec-yes"
-                                    data-id="${c.course_id}"
-                                    data-name="${escHtml(c.department + ' ' + c.identifier)}">Yes</button>
-                            <button type="button" class="tutor-rec-no" data-id="${c.course_id}">No</button>
-                        </div>
-                    `).join('');
-                    listEl.querySelectorAll('.tutor-rec-yes').forEach(btn => {
-                        btn.addEventListener('click', () => openTutorPanel(
-                            parseInt(btn.dataset.id, 10), btn.dataset.name
-                        ));
-                    });
-                    listEl.querySelectorAll('.tutor-rec-no').forEach(btn => {
-                        btn.addEventListener('click', () => dismissRecommendation(parseInt(btn.dataset.id, 10)));
-                    });
-                }
-
-                async function dismissRecommendation(courseId) {
-                    try {
-                        await fetch(`/api/my/tutor_dismiss/${courseId}`, { method: 'POST' });
-                        await loadRecommendations();
-                    } catch (e) { console.warn('Failed to dismiss recommendation:', e); }
-                }
-
-                function openTutorPanel(courseId, courseName) {
-                    selectedCourseId = courseId;
-                    document.getElementById('tutor-selected-course-name').textContent = courseName;
-                    document.getElementById('tutor-confidence').value = '7';
-                    panel.classList.remove('hidden');
-                    resultsEl.classList.add('hidden');
-                    input.value = '';
-                }
-
-                function closeTutorPanel() {
-                    panel.classList.add('hidden');
-                    selectedCourseId = null;
-                }
-
-                async function saveTutorCapability() {
-                    if (!selectedCourseId) return;
-                    const confidence = parseInt(document.getElementById('tutor-confidence').value, 10);
-                    if (isNaN(confidence) || confidence < 1 || confidence > 10) {
-                        document.getElementById('tutor-confidence').focus();
-                        return;
-                    }
-                    try {
-                        const form = new FormData();
-                        form.append('course_id', selectedCourseId);
-                        form.append('confidence', confidence);
-                        await fetch('/api/my/tutor_capabilities', { method: 'POST', body: form });
-                        closeTutorPanel();
-                        await loadTutorCaps();
-                        await loadRecommendations();
-                    } catch (e) { console.warn('Failed to save tutor capability:', e); }
-                }
-
-                document.getElementById('tutor-add-btn').addEventListener('click', saveTutorCapability);
-                document.getElementById('tutor-cancel-btn').addEventListener('click', closeTutorPanel);
-                document.getElementById('tutor-confidence').addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter') saveTutorCapability();
-                });
-
-                bindSearch('tutor-search-input', 'tutor-search-results', 'i-can-tutor-section',
-                    function(courses, resultsEl) {
-                        if (!courses.length) {
-                            resultsEl.innerHTML = '<div class="course-search-empty">No courses found.</div>';
-                        } else {
-                            resultsEl.innerHTML = courses.slice(0, 30).map(c => `
-                                <div class="course-search-item course-search-item-action"
-                                     data-id="${c.course_id}"
-                                     data-name="${escHtml(c.department + ' ' + c.identifier)}">
-                                    <span class="course-search-code">${escHtml(c.department)} ${escHtml(c.identifier)}</span>
-                                    <span class="course-search-title">${escHtml(c.title || '')}</span>
-                                    <span class="course-search-meta">${c.semester_hours ? escHtml(c.semester_hours) + ' cr' : ''}</span>
-                                </div>
-                            `).join('');
-                            resultsEl.querySelectorAll('.course-search-item-action').forEach(el => {
-                                el.addEventListener('click', () => openTutorPanel(
-                                    parseInt(el.dataset.id, 10),
-                                    el.dataset.name
-                                ));
-                            });
-                        }
-                        resultsEl.classList.remove('hidden');
-                    }
-                );
-
-                loadTutorCaps();
-                loadRecommendations();
-            })();
-
-        })();
-    </script>
+    <script src="/static/js/user_portal.js"></script>
 </body>
 </html>

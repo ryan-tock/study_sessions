@@ -3,6 +3,7 @@
 DROP VIEW IF EXISTS student_overviews;
 DROP VIEW IF EXISTS current_term;
 
+DROP TABLE IF EXISTS course_links CASCADE;
 DROP TABLE IF EXISTS courses CASCADE;
 DROP TABLE IF EXISTS exams CASCADE;
 DROP TABLE IF EXISTS students CASCADE;
@@ -12,6 +13,8 @@ DROP TABLE IF EXISTS study_sessions CASCADE;
 DROP TABLE IF EXISTS student_auth;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
 
+DROP FUNCTION IF EXISTS linked_course_ids(INTEGER);
+DROP FUNCTION IF EXISTS linked_course_ids_any(INTEGER);
 DROP FUNCTION IF EXISTS is_admin();
 DROP FUNCTION IF EXISTS current_user_id();
 DROP FUNCTION IF EXISTS my_course_ids_for_term(SMALLINT, term_season);
@@ -21,11 +24,13 @@ DROP TYPE IF EXISTS sharing_setting CASCADE;
 DROP TYPE IF EXISTS academic_term CASCADE;
 DROP TYPE IF EXISTS term_season CASCADE;
 DROP TYPE IF EXISTS exam_type CASCADE;
+DROP TYPE IF EXISTS link_type CASCADE;
 
 CREATE TYPE sharing_setting AS ENUM('closed', 'common_class', 'open');
 CREATE TYPE term_season AS ENUM('spring', 'fall');
 CREATE TYPE academic_term AS (academic_year SMALLINT, season term_season);
 CREATE TYPE exam_type AS ENUM('in_class', 'quiz', 'common_hour', 'final');
+CREATE TYPE link_type AS ENUM('strong', 'weak');
 
 -- RLS helper: returns current user's student_id, or NULL if not set
 CREATE FUNCTION current_user_id() RETURNS integer AS $$
@@ -55,6 +60,49 @@ CREATE POLICY courses_insert ON courses FOR INSERT WITH CHECK (is_admin());
 CREATE POLICY courses_update ON courses FOR UPDATE USING (is_admin()) WITH CHECK (is_admin());
 CREATE POLICY courses_delete ON courses FOR DELETE USING (is_admin());
 
+CREATE TABLE course_links (
+    course_id_a INTEGER NOT NULL,
+    course_id_b INTEGER NOT NULL,
+    link_type link_type NOT NULL DEFAULT 'strong',
+    PRIMARY KEY (course_id_a, course_id_b),
+    CHECK (course_id_a < course_id_b),
+    CONSTRAINT fk_link_a FOREIGN KEY (course_id_a) REFERENCES courses(course_id) ON DELETE CASCADE,
+    CONSTRAINT fk_link_b FOREIGN KEY (course_id_b) REFERENCES courses(course_id) ON DELETE CASCADE
+);
+
+ALTER TABLE course_links ENABLE ROW LEVEL SECURITY;
+CREATE POLICY course_links_select ON course_links FOR SELECT USING (true);
+CREATE POLICY course_links_admin ON course_links USING (is_admin()) WITH CHECK (is_admin());
+
+-- Resolves strong-linked course group (same tests, combined sessions).
+CREATE OR REPLACE FUNCTION linked_course_ids(p_course_id INTEGER)
+RETURNS INTEGER[] AS $$
+    WITH RECURSIVE link_group AS (
+        SELECT p_course_id AS course_id
+        UNION
+        SELECT CASE WHEN cl.course_id_a = lg.course_id THEN cl.course_id_b
+                    ELSE cl.course_id_a END
+        FROM course_links cl
+        JOIN link_group lg ON cl.course_id_a = lg.course_id OR cl.course_id_b = lg.course_id
+        WHERE cl.link_type = 'strong'
+    )
+    SELECT ARRAY(SELECT DISTINCT course_id FROM link_group);
+$$ LANGUAGE sql STABLE;
+
+-- Resolves all linked courses (strong + weak) for tutor resolution.
+CREATE OR REPLACE FUNCTION linked_course_ids_any(p_course_id INTEGER)
+RETURNS INTEGER[] AS $$
+    WITH RECURSIVE link_group AS (
+        SELECT p_course_id AS course_id
+        UNION
+        SELECT CASE WHEN cl.course_id_a = lg.course_id THEN cl.course_id_b
+                    ELSE cl.course_id_a END
+        FROM course_links cl
+        JOIN link_group lg ON cl.course_id_a = lg.course_id OR cl.course_id_b = lg.course_id
+    )
+    SELECT ARRAY(SELECT DISTINCT course_id FROM link_group);
+$$ LANGUAGE sql STABLE;
+
 -- students must be created before exams (exams.creator_id references students)
 CREATE TABLE students (
     student_id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
@@ -83,13 +131,15 @@ CREATE TABLE exams (
     test_date DATE NOT NULL,
     exam_type exam_type NOT NULL DEFAULT 'in_class',
     creator_id INTEGER REFERENCES students(student_id) ON DELETE SET NULL,
+    confirmed BOOLEAN NOT NULL DEFAULT TRUE,
+    disputed BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
 
     CONSTRAINT fk_exams_course
         FOREIGN KEY(course_id)
-        REFERENCES courses(course_id),
-
-    CONSTRAINT unique_exam UNIQUE (course_id, test_date, exam_type)
+        REFERENCES courses(course_id)
 );
+CREATE UNIQUE INDEX unique_exam ON exams (course_id, test_date, exam_type) WHERE NOT deleted;
 
 ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
 CREATE POLICY exams_select ON exams FOR SELECT USING (true);
@@ -98,7 +148,7 @@ CREATE POLICY exams_insert ON exams FOR INSERT WITH CHECK (
 );
 CREATE POLICY exams_update ON exams FOR UPDATE USING (is_admin()) WITH CHECK (is_admin());
 CREATE POLICY exams_delete ON exams FOR DELETE USING (
-    is_admin() OR creator_id = current_user_id()
+    is_admin() OR (creator_id = current_user_id() AND NOT confirmed)
 );
 
 CREATE TABLE enrollments (
@@ -211,17 +261,16 @@ CREATE POLICY tutors_own_delete ON tutors FOR DELETE USING (student_id = current
 
 CREATE TABLE study_sessions (
     session_id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    tutor_student_id INTEGER NOT NULL,
+    tutor_student_id INTEGER,
     exam_id INTEGER NOT NULL,
     session_timestamp TIMESTAMPTZ NOT NULL,
+    location TEXT NOT NULL DEFAULT 'Study Room',
 
     CONSTRAINT fk_session_tutor FOREIGN KEY (tutor_student_id)
         REFERENCES students (student_id),
 
     CONSTRAINT fk_session_exam FOREIGN KEY (exam_id)
-        REFERENCES exams (exam_id),
-
-    CONSTRAINT unique_tutor_exam UNIQUE (tutor_student_id, exam_id)
+        REFERENCES exams (exam_id)
 );
 
 ALTER TABLE study_sessions ENABLE ROW LEVEL SECURITY;
@@ -260,6 +309,7 @@ WITH exam_terms AS (
         END AS season,
         ABS(test_date - CURRENT_DATE) AS days_from_today
     FROM exams
+    WHERE NOT deleted
 ),
 term_distances AS (
     SELECT academic_year, season, MIN(days_from_today) AS min_distance

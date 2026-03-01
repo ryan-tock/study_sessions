@@ -1,7 +1,5 @@
 venv
 __pycache__
-studysessions
-python_scripts
 .DS_Store
 package-lock.json
 enrollments.json
@@ -11,3 +9,9 @@ avatars
 users.json
 .env
 data
+CLAUDE.md
+.claude
+.pytest_cache
+deploy
+reset_remote_db.sh
+deploy.sh
