@@ -1,0 +1,609 @@
+/* User portal sections */
+#report-exam-section {
+    margin-bottom: 28px;
+}
+#assessments-section {
+    margin-bottom: 28px;
+}
+#study-sessions-section {
+    margin-bottom: 8px;
+}
+
+.user-sections-row {
+    display: flex;
+    gap: 24px;
+    margin-top: 28px;
+    align-items: flex-start;
+}
+
+.user-section {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.user-section h2 {
+    color: #2c3e50;
+    margin-bottom: 14px;
+    font-size: 18px;
+}
+
+.user-course-list {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.user-course-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.user-course-code {
+    font-weight: 700;
+    color: #2c3e50;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.user-course-title {
+    color: #555;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-course-remove {
+    width: auto;
+    padding: 2px 7px;
+    font-size: 12px;
+    background: none;
+    color: #bbb;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1.4;
+}
+
+.user-course-remove:hover {
+    background: #fee2e2;
+    color: #c0392b;
+    border-color: #e74c3c;
+}
+
+.no-tutor-report-btn {
+    width: auto;
+    padding: 1px 6px;
+    font-size: 10px;
+    background: none;
+    color: #bbb;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1.4;
+}
+.no-tutor-report-btn:hover {
+    background: #fff8e1;
+    color: #856404;
+    border-color: #f0c040;
+}
+.no-tutor-badge {
+    font-size: 10px;
+    color: #27ae60;
+    flex-shrink: 0;
+}
+.no-tutor-badge.pending {
+    color: #f39c12;
+}
+
+.user-course-empty {
+    color: #aaa;
+    font-size: 13px;
+    padding: 10px 0;
+    text-align: center;
+}
+
+.confidence-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.edit-user-section {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid #eee;
+}
+.edit-user-section > label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 6px;
+}
+.edit-user-course-list {
+    max-height: 160px;
+    overflow-y: auto;
+}
+.edit-user-course-list .user-course-item {
+    padding: 4px 8px;
+    font-size: 13px;
+}
+
+.tutor-conf-edit {
+    background: none;
+    border: none;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0;
+    width: auto;
+    min-width: 0;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.tutor-conf-edit:hover {
+    background: none;
+    color: #3498db;
+}
+
+.user-course-item .tutor-conf-input {
+    width: 48px;
+    padding: 2px 5px;
+    font-size: 13px;
+    border: 1px solid #bde0ff;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.user-course-item .btn-action.tutor-conf-save {
+    padding: 2px 8px;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.tutor-add-panel {
+    margin-top: 8px;
+    padding: 12px 14px;
+    background: #f0f7ff;
+    border: 1px solid #bde0ff;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tutor-selected-name {
+    font-weight: 700;
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+.tutor-confidence-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tutor-confidence-row label {
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 0;
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+.tutor-confidence-row input[type="number"] {
+    width: 60px;
+    padding: 5px 8px;
+    font-size: 14px;
+}
+
+.confidence-range {
+    color: #888;
+    font-size: 13px;
+}
+
+.tutor-add-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.course-search-item-action {
+    cursor: pointer;
+}
+
+/* Tutor recommendations */
+.tutor-recommendations {
+    margin-top: 12px;
+    border: 1px solid #e8e8e8;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.tutor-rec-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #999;
+    padding: 6px 10px;
+    background: #fafafa;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.tutor-rec-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    border-bottom: 1px solid #f5f5f5;
+}
+
+.tutor-rec-item:last-child {
+    border-bottom: none;
+}
+
+.tutor-rec-no {
+    width: auto;
+    padding: 2px 7px;
+    font-size: 12px;
+    background: none;
+    color: #bbb;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1.4;
+}
+
+.tutor-rec-no:hover {
+    background: #fee2e2;
+    color: #c0392b;
+    border-color: #e74c3c;
+}
+
+.tutor-rec-item .btn-action {
+    flex-shrink: 0;
+    padding: 2px 10px;
+    font-size: 12px;
+}
+
+
+/* Sharing / privacy options */
+.sharing-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sharing-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.sharing-option:hover {
+    border-color: #3498db;
+    background: #f0f8ff;
+}
+
+.sharing-option-selected {
+    border-color: #3498db;
+    background: #f0f8ff;
+}
+
+.sharing-option input[type="radio"] {
+    margin-top: 3px;
+    flex-shrink: 0;
+    accent-color: #3498db;
+}
+
+.sharing-option-content {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sharing-option-title {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+.sharing-option-desc {
+    font-size: 13px;
+    color: #7f8c8d;
+}
+
+
+/* Assessment report form */
+.assessment-report-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.assessment-report-row select,
+.assessment-report-row input[type="date"] {
+    width: auto;
+    font-size: 14px;
+    padding: 7px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+.assessment-report-row select {
+    max-width: 280px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    padding-right: 28px;
+}
+#assessment-course-select {
+    min-width: 280px;
+}
+#assessment-type-select {
+    min-width: 140px;
+}
+
+/* Assessment type badges */
+.assessment-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.assessment-type-test {
+    background: #e8daef;
+    color: #6c3483;
+}
+
+.assessment-type-quiz {
+    background: #d5f5e3;
+    color: #1e8449;
+}
+
+.assessment-type-final {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.assessment-type-common {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+/* Unconfirmed assessment */
+.assessment-unconfirmed {
+    border-left: 3px solid #f39c12;
+    opacity: 0.75;
+}
+
+.assessment-pending-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: #f39c12;
+    flex-shrink: 0;
+}
+
+/* Assessment date group headers */
+.assessment-date-header {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #888;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+}
+
+.assessment-date-header:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
+/* Dispute button */
+.assessment-dispute-btn {
+    font-size: 11px;
+    padding: 2px 8px;
+    background: none;
+    color: #bbb;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    cursor: pointer;
+    width: auto;
+    flex-shrink: 0;
+}
+
+.assessment-dispute-btn:hover {
+    background: #fee2e2;
+    color: #c0392b;
+    border-color: #e74c3c;
+}
+
+
+/* Student-facing tutor chips under enrolled courses */
+.course-tutors-row {
+    padding: 2px 0 6px 28px;
+    font-size: 12px;
+    color: #666;
+    display: grid;
+    grid-template-columns: 76px 1fr;
+    align-items: baseline;
+    gap: 3px;
+}
+.tutors-label { font-weight: 500; color: #888; }
+.course-tutors-row .chips-wrap,
+.course-classmates-row .chips-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    align-items: center;
+}
+.course-classmates-row {
+    padding: 2px 0 6px 28px;
+    margin-top: 2px;
+    font-size: 12px;
+    color: #666;
+    display: grid;
+    grid-template-columns: 76px 1fr;
+    align-items: baseline;
+    gap: 3px;
+}
+.classmate-chip {
+    display: inline-block;
+    background: #f5f0ff;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    padding: 1px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+.tutor-chip {
+    display: inline-block;
+    background: #f0f4ff;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    padding: 1px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+.tutor-from {
+    font-size: 10px;
+    color: #999;
+    font-style: italic;
+}
+
+/* Study session items in user portal */
+.study-session-item { flex-wrap: wrap; gap: 6px; }
+.study-session-meta { font-size: 12px; color: #666; }
+.study-session-tutor { font-size: 13px; color: #3498db; font-weight: 500; }
+.study-session-tutor.is-tutor { font-size: 14px; font-weight: 700; color: #2980b9; }
+
+/* ── User portal mobile ── */
+@media (max-width: 640px) {
+    .login-container { margin-top: 40px; padding: 24px; }
+    .portal-container { padding: 10px; }
+    .navbar {
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px;
+        align-items: stretch;
+    }
+    .navbar h1 { font-size: 20px; text-align: center; }
+    .nav-links { justify-content: center; flex-wrap: wrap; }
+    .content { padding: 16px; }
+    .content h2 { font-size: 17px; margin-bottom: 12px; }
+
+    /* Report Exam: stack controls */
+    .assessment-report-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .assessment-report-row select,
+    .assessment-report-row input[type="date"] {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+    #assessment-course-select { min-width: 0; }
+    #assessment-type-select { min-width: 0; }
+
+    /* My Classes / I Can Tutor: stack vertically */
+    .user-sections-row {
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    /* Course search */
+    .course-search-input-wrap { max-width: none; }
+    .course-search-results { max-width: none; }
+    .course-search-item {
+        grid-template-columns: 90px 1fr;
+        gap: 6px;
+        padding: 8px 10px;
+    }
+    .course-search-meta { display: none; }
+
+    /* Tutor chips */
+    .course-tutors-row { padding-left: 10px; }
+}
+
+/* ───── Classmates Section ───── */
+.classmates-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.classmate-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #fafafa;
+    border: 1px solid #eee;
+    border-radius: 6px;
+}
+
+.classmate-name {
+    font-weight: 600;
+    min-width: 140px;
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+.classmate-courses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.classmate-course-chip {
+    background-color: #e8f4fd;
+    color: #2980b9;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.classmate-search-results {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    background: white;
+}
+

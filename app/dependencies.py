@@ -1,14 +1,15 @@
+from datetime import timedelta
 from typing import Optional
 from fastapi import HTTPException, Request, status
-from jose import JWTError, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 from .config import SECRET_KEY, ALGORITHM
 
 
 def get_current_user(request: Request) -> Optional[dict]:
-    """Extract and verify JWT from cookie."""
+    """Extract and verify JWT from cookie. If expired, try refresh token."""
     token = request.cookies.get("access_token")
     if not token or not token.startswith("Bearer "):
-        return None
+        return _try_refresh(request)
 
     token = token.replace("Bearer ", "")
     try:
@@ -18,8 +19,51 @@ def get_current_user(request: Request) -> Optional[dict]:
         is_root = payload.get("is_root", False)
         is_first_login = payload.get("is_first_login", False)
         return {"student_id": student_id, "is_admin": is_admin, "is_root": is_root, "is_first_login": is_first_login}
+    except ExpiredSignatureError:
+        return _try_refresh(request)
     except (JWTError, ValueError):
         return None
+
+
+def _try_refresh(request: Request) -> Optional[dict]:
+    """Attempt to refresh authentication using the refresh token cookie."""
+    from .auth import verify_refresh_token, create_access_token
+    from .database import get_db
+
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        return None
+
+    student_id = verify_refresh_token(refresh_token)
+    if not student_id:
+        return None
+
+    # Look up current auth info for the student
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT is_admin, is_root FROM student_auth WHERE student_id = %s",
+                (student_id,)
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+
+    is_admin, is_root = row
+    user = {
+        "student_id": student_id,
+        "is_admin": is_admin,
+        "is_root": is_root,
+        "is_first_login": False,
+    }
+
+    # Generate new access token and store it on request state for middleware to set
+    new_access_token = create_access_token(
+        data={"sub": str(student_id), "is_admin": is_admin, "is_root": is_root, "is_first_login": False},
+        expires_delta=timedelta(minutes=30),
+    )
+    request.state.new_access_token = new_access_token
+    return user
 
 
 def require_auth(request: Request):

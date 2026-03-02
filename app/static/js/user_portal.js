@@ -1,6 +1,17 @@
 window.toggleAvatarMenu = function() {
     document.getElementById('avatar-menu').classList.toggle('hidden');
 };
+window.toggleDarkMode = function(e) {
+    e.preventDefault();
+    fetch('/api/my/dark_mode', { method: 'POST' })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            document.body.classList.toggle('dark', data.dark_mode);
+            var toggle = document.getElementById('dark-mode-toggle');
+            if (toggle) toggle.textContent = data.dark_mode ? 'Light Mode' : 'Dark Mode';
+        })
+        .catch(function() {});
+};
 document.addEventListener('click', function(e) {
     if (!e.target.closest('.nav-avatar-wrapper')) {
         document.getElementById('avatar-menu').classList.add('hidden');
@@ -64,72 +75,153 @@ function escHtml(str) {
         const input = document.getElementById('enroll-search-input');
         const resultsEl = document.getElementById('enroll-search-results');
         const listEl = document.getElementById('enrolled-list');
+        let enrolledCourses = [];
 
         async function loadEnrollments() {
             try {
                 const res = await fetch('/api/my/enrollments');
-                renderEnrolled(await res.json());
+                enrolledCourses = await res.json();
+                renderEnrolled();
             } catch (e) { console.warn('Failed to load enrollments:', e); }
         }
 
-        function renderEnrolled(courses) {
-            if (!courses.length) {
+        function renderEnrolled() {
+            if (!enrolledCourses.length) {
                 listEl.innerHTML = '<div class="user-course-empty">No classes added yet.</div>';
                 return;
             }
-            listEl.innerHTML = courses.map(c => `
+            listEl.innerHTML = enrolledCourses.map(c => {
+                var full = allCourses.find(ac => ac.course_id === c.course_id);
+                var noTutorBtn = '';
+                if (full && full.no_tutor_needed) {
+                    noTutorBtn = '<span class="no-tutor-badge">No tutor needed</span>';
+                } else if (full && full.no_tutor_pending) {
+                    noTutorBtn = '<span class="no-tutor-badge pending">Pending</span>';
+                } else {
+                    noTutorBtn = '<button type="button" class="no-tutor-report-btn" data-id="' + c.course_id + '" title="Report that this course doesn\'t need a tutor">No tutor needed</button>';
+                }
+                return `
                 <div class="user-course-item" data-course-id="${c.course_id}">
                     <span class="user-course-code">${escHtml(c.department)} ${escHtml(c.identifier)}</span>
                     <span class="user-course-title">${escHtml(c.title || '')}</span>
+                    ${noTutorBtn}
                     <button type="button" class="user-course-remove" data-id="${c.course_id}">✕</button>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
             listEl.querySelectorAll('.user-course-remove').forEach(btn => {
                 btn.addEventListener('click', () => removeEnrollment(parseInt(btn.dataset.id, 10)));
+            });
+            listEl.querySelectorAll('.no-tutor-report-btn').forEach(btn => {
+                btn.addEventListener('click', () => reportNoTutor(parseInt(btn.dataset.id, 10)));
             });
             loadCourseTutors();
         }
 
+        async function reportNoTutor(courseId) {
+            var btn = listEl.querySelector('.no-tutor-report-btn[data-id="' + courseId + '"]');
+            if (btn) {
+                btn.outerHTML = '<span class="no-tutor-badge pending">Pending</span>';
+            }
+            var full = allCourses.find(ac => ac.course_id === courseId);
+            if (full) full.no_tutor_pending = true;
+            try {
+                var res = await fetch('/api/my/report_no_tutor/' + courseId, { method: 'POST' });
+                if (!res.ok) throw new Error();
+            } catch (e) {
+                if (full) full.no_tutor_pending = false;
+                renderEnrolled();
+            }
+        }
+
         async function loadCourseTutors() {
             try {
-                var res = await fetch('/api/my/course_tutors');
-                var data = await res.json();
-                // Remove old tutor rows
-                listEl.querySelectorAll('.course-tutors-row').forEach(el => el.remove());
-                data.forEach(function(ct) {
-                    var courseItem = listEl.querySelector('[data-course-id="' + ct.course_id + '"]');
-                    if (!courseItem || !ct.tutors.length) return;
-                    var row = document.createElement('div');
-                    row.className = 'course-tutors-row';
-                    row.innerHTML = '<span class="tutors-label">Tutors:</span> ' +
-                        ct.tutors.map(function(t) {
-                            return '<span class="tutor-chip">' +
-                                escHtml(t.first_name) + ' ' + escHtml(t.last_name) + ' (' + t.confidence + ')' +
-                            '</span>';
-                        }).join(' ');
-                    courseItem.after(row);
+                var [tutorRes, classmateRes] = await Promise.all([
+                    fetch('/api/my/course_tutors'),
+                    fetch('/api/my/classmates')
+                ]);
+                var tutorData = await tutorRes.json();
+                var classmateData = await classmateRes.json();
+
+                // Pivot classmates by course_id
+                var classmateByCourse = {};
+                classmateData.forEach(function(cm) {
+                    cm.courses.forEach(function(course) {
+                        if (!classmateByCourse[course.course_id]) classmateByCourse[course.course_id] = [];
+                        classmateByCourse[course.course_id].push(cm);
+                    });
+                });
+
+                listEl.querySelectorAll('.course-tutors-row, .course-classmates-row').forEach(el => el.remove());
+
+                // Insert tutors and classmates after each course item
+                enrolledCourses.forEach(function(c) {
+                    var courseItem = listEl.querySelector('[data-course-id="' + c.course_id + '"]');
+                    if (!courseItem) return;
+                    var anchor = courseItem;
+
+                    var ct = tutorData.find(t => t.course_id === c.course_id);
+                    if (ct && ct.tutors.length) {
+                        var tRow = document.createElement('div');
+                        tRow.className = 'course-tutors-row';
+                        tRow.innerHTML = '<span class="tutors-label">Tutors:</span><span class="chips-wrap">' +
+                            ct.tutors.map(function(t) {
+                                var label = escHtml(t.first_name) + ' ' + escHtml(t.last_name) + ' (' + t.confidence + ')';
+                                if (t.from_course) label += ' <span class="tutor-from">' + escHtml(t.from_course) + '</span>';
+                                return '<span class="tutor-chip">' + label + '</span>';
+                            }).join(' ') + '</span>';
+                        anchor.after(tRow);
+                        anchor = tRow;
+                    }
+
+                    var cms = classmateByCourse[c.course_id];
+                    if (cms && cms.length) {
+                        var cRow = document.createElement('div');
+                        cRow.className = 'course-classmates-row';
+                        cRow.innerHTML = '<span class="tutors-label">Classmates:</span><span class="chips-wrap">' +
+                            cms.map(function(cm) {
+                                return '<span class="classmate-chip">' +
+                                    escHtml(cm.first_name) + ' ' + escHtml(cm.last_name) +
+                                '</span>';
+                            }).join(' ') + '</span>';
+                        anchor.after(cRow);
+                    }
                 });
             } catch(e) { /* silent */ }
         }
 
         async function removeEnrollment(courseId) {
+            var removed = enrolledCourses.find(c => c.course_id === courseId);
+            enrolledCourses = enrolledCourses.filter(c => c.course_id !== courseId);
+            renderEnrolled();
+            window.dispatchEvent(new Event('enrollments-changed'));
             try {
-                await fetch(`/api/my/enrollments/${courseId}`, { method: 'DELETE' });
-                await loadEnrollments();
+                var res = await fetch(`/api/my/enrollments/${courseId}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error();
+            } catch (e) {
+                if (removed) { enrolledCourses.push(removed); renderEnrolled(); }
                 window.dispatchEvent(new Event('enrollments-changed'));
-            } catch (e) { console.warn('Failed to remove enrollment:', e); }
+            }
         }
 
         async function addEnrollment(courseId) {
             resultsEl.classList.add('hidden');
             input.value = '';
+            var course = allCourses.find(c => c.course_id === courseId);
+            if (course && !enrolledCourses.find(c => c.course_id === courseId)) {
+                enrolledCourses.push(course);
+                renderEnrolled();
+                window.dispatchEvent(new Event('enrollments-changed'));
+            }
             try {
                 const form = new FormData();
                 form.append('course_id', courseId);
-                await fetch('/api/my/enrollments', { method: 'POST', body: form });
-                await loadEnrollments();
+                var res = await fetch('/api/my/enrollments', { method: 'POST', body: form });
+                if (!res.ok) throw new Error();
+            } catch (e) {
+                enrolledCourses = enrolledCourses.filter(c => c.course_id !== courseId);
+                renderEnrolled();
                 window.dispatchEvent(new Event('enrollments-changed'));
-            } catch (e) { console.warn('Failed to add enrollment:', e); }
+            }
         }
 
         bindSearch('enroll-search-input', 'enroll-search-results', 'my-classes-section',
@@ -162,11 +254,13 @@ function escHtml(str) {
         const listEl = document.getElementById('tutor-list');
         const panel = document.getElementById('tutor-add-panel');
         let selectedCourseId = null;
+        let tutorCaps = [];
 
         async function loadTutorCaps() {
             try {
                 const res = await fetch('/api/my/tutor_capabilities');
-                renderTutorCaps(await res.json());
+                tutorCaps = await res.json();
+                renderTutorCaps();
             } catch (e) { console.warn('Failed to load tutor capabilities:', e); }
         }
 
@@ -176,12 +270,12 @@ function escHtml(str) {
             return 'background:#fee2e2;color:#991b1b';
         }
 
-        function renderTutorCaps(courses) {
-            if (!courses.length) {
+        function renderTutorCaps() {
+            if (!tutorCaps.length) {
                 listEl.innerHTML = '<div class="user-course-empty">No courses added yet.</div>';
                 return;
             }
-            listEl.innerHTML = courses.map(c => {
+            listEl.innerHTML = tutorCaps.map(c => {
                 const conf = c.confidence ?? 1;
                 const style = confidenceStyle(conf);
                 return `
@@ -235,11 +329,19 @@ function escHtml(str) {
                         item.querySelector('.tutor-conf-input').focus();
                         return;
                     }
-                    const form = new FormData();
-                    form.append('course_id', courseId);
-                    form.append('confidence', val);
-                    await fetch('/api/my/tutor_capabilities', { method: 'POST', body: form });
-                    await loadTutorCaps();
+                    var oldConf = (tutorCaps.find(c => c.course_id === courseId) || {}).confidence;
+                    var cap = tutorCaps.find(c => c.course_id === courseId);
+                    if (cap) cap.confidence = val;
+                    renderTutorCaps();
+                    try {
+                        const form = new FormData();
+                        form.append('course_id', courseId);
+                        form.append('confidence', val);
+                        var res = await fetch('/api/my/tutor_capabilities', { method: 'POST', body: form });
+                        if (!res.ok) throw new Error();
+                    } catch(e) {
+                        if (cap && oldConf !== undefined) { cap.confidence = oldConf; renderTutorCaps(); }
+                    }
                 });
             });
             listEl.querySelectorAll('.tutor-conf-input').forEach(inp => {
@@ -251,11 +353,17 @@ function escHtml(str) {
         }
 
         async function removeTutorCap(courseId) {
+            var removed = tutorCaps.find(c => c.course_id === courseId);
+            tutorCaps = tutorCaps.filter(c => c.course_id !== courseId);
+            renderTutorCaps();
+            loadRecommendations();
             try {
-                await fetch(`/api/my/tutor_capabilities/${courseId}`, { method: 'DELETE' });
-                await loadTutorCaps();
-                await loadRecommendations();
-            } catch (e) { console.warn('Failed to remove tutor capability:', e); }
+                var res = await fetch(`/api/my/tutor_capabilities/${courseId}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error();
+            } catch (e) {
+                if (removed) { tutorCaps.push(removed); renderTutorCaps(); }
+                loadRecommendations();
+            }
         }
 
         async function loadRecommendations() {
@@ -294,10 +402,19 @@ function escHtml(str) {
         }
 
         async function dismissRecommendation(courseId) {
+            // Optimistic: hide the rec item immediately
+            var recItems = document.querySelectorAll('#tutor-rec-list .tutor-rec-item');
+            recItems.forEach(function(el) {
+                var noBtn = el.querySelector('.tutor-rec-no[data-id="' + courseId + '"]');
+                if (noBtn) el.style.display = 'none';
+            });
             try {
-                await fetch(`/api/my/tutor_dismiss/${courseId}`, { method: 'POST' });
-                await loadRecommendations();
-            } catch (e) { console.warn('Failed to dismiss recommendation:', e); }
+                var res = await fetch(`/api/my/tutor_dismiss/${courseId}`, { method: 'POST' });
+                if (!res.ok) throw new Error();
+                loadRecommendations();
+            } catch (e) {
+                recItems.forEach(function(el) { el.style.display = ''; });
+            }
         }
 
         function openTutorPanel(courseId, courseName) {
@@ -321,15 +438,33 @@ function escHtml(str) {
                 document.getElementById('tutor-confidence').focus();
                 return;
             }
+            var courseId = selectedCourseId;
+            var course = allCourses.find(c => c.course_id === courseId);
+            closeTutorPanel();
+            if (course) {
+                var existing = tutorCaps.find(c => c.course_id === courseId);
+                if (existing) {
+                    existing.confidence = confidence;
+                } else {
+                    tutorCaps.push({
+                        course_id: courseId, department: course.department,
+                        identifier: course.identifier, title: course.title, confidence: confidence
+                    });
+                }
+                renderTutorCaps();
+                loadRecommendations();
+            }
             try {
                 const form = new FormData();
-                form.append('course_id', selectedCourseId);
+                form.append('course_id', courseId);
                 form.append('confidence', confidence);
-                await fetch('/api/my/tutor_capabilities', { method: 'POST', body: form });
-                closeTutorPanel();
-                await loadTutorCaps();
-                await loadRecommendations();
-            } catch (e) { console.warn('Failed to save tutor capability:', e); }
+                var res = await fetch('/api/my/tutor_capabilities', { method: 'POST', body: form });
+                if (!res.ok) throw new Error();
+            } catch (e) {
+                tutorCaps = tutorCaps.filter(c => c.course_id !== courseId);
+                renderTutorCaps();
+                loadRecommendations();
+            }
         }
 
         document.getElementById('tutor-add-btn').addEventListener('click', saveTutorCapability);
@@ -340,10 +475,11 @@ function escHtml(str) {
 
         bindSearch('tutor-search-input', 'tutor-search-results', 'i-can-tutor-section',
             function(courses, resultsEl) {
-                if (!courses.length) {
+                var filtered = courses.filter(c => !c.no_tutor_needed);
+                if (!filtered.length) {
                     resultsEl.innerHTML = '<div class="course-search-empty">No courses found.</div>';
                 } else {
-                    resultsEl.innerHTML = courses.slice(0, 30).map(c => `
+                    resultsEl.innerHTML = filtered.slice(0, 30).map(c => `
                         <div class="course-search-item course-search-item-action"
                              data-id="${c.course_id}"
                              data-name="${escHtml(c.department + ' ' + c.identifier)}">
@@ -456,32 +592,65 @@ function escHtml(str) {
         }
 
         async function deleteAssessment(examId) {
+            // Optimistic: hide the item immediately
+            var btn = listEl.querySelector('.assessment-delete[data-id="' + examId + '"]');
+            var item = btn ? btn.closest('.user-course-item') : null;
+            if (item) item.style.display = 'none';
             try {
                 var res = await fetch('/api/my/assessments/' + examId, { method: 'DELETE' });
-                if (!res.ok) console.warn('Delete assessment failed:', res.status);
-                await loadAssessments();
-            } catch (e) { console.warn('Failed to delete assessment:', e); }
+                if (!res.ok) throw new Error();
+                loadAssessments();
+            } catch (e) {
+                if (item) item.style.display = '';
+            }
         }
 
         async function disputeAssessment(examId) {
+            // Optimistic: disable button immediately
+            var btn = listEl.querySelector('.assessment-dispute-btn[data-id="' + examId + '"]');
+            if (btn) { btn.disabled = true; btn.textContent = 'Reported'; }
             try {
                 var res = await fetch('/api/my/assessments/' + examId + '/dispute', { method: 'POST' });
-                if (!res.ok) console.warn('Dispute assessment failed:', res.status);
-                await loadAssessments();
-            } catch (e) { console.warn('Failed to dispute assessment:', e); }
+                if (!res.ok) throw new Error();
+                loadAssessments();
+            } catch (e) {
+                if (btn) { btn.disabled = false; btn.textContent = 'Report: No Final'; }
+            }
         }
 
         reportBtn.addEventListener('click', async function() {
             if (!courseSelect.value || !dateInput.value) return;
+            reportBtn.disabled = true;
             try {
                 var form = new FormData();
                 form.append('course_id', courseSelect.value);
                 form.append('test_date', dateInput.value);
                 form.append('exam_type', typeSelect.value);
                 var res = await fetch('/api/my/assessments', { method: 'POST', body: form });
-                if (!res.ok) console.warn('Report assessment failed:', res.status);
+                if (!res.ok) {
+                    var errData = await res.json().catch(function() { return {}; });
+                    reportBtn.textContent = errData.detail || 'Failed';
+                    reportBtn.classList.add('btn-error');
+                    setTimeout(function() {
+                        reportBtn.textContent = 'Report';
+                        reportBtn.classList.remove('btn-error');
+                        reportBtn.disabled = false;
+                    }, 2000);
+                    return;
+                }
                 await loadAssessments();
-            } catch (e) { console.warn('Failed to report assessment:', e); }
+                courseSelect.value = '';
+                reportBtn.textContent = 'Reported!';
+                reportBtn.classList.add('btn-success');
+                setTimeout(function() {
+                    reportBtn.textContent = 'Report';
+                    reportBtn.classList.remove('btn-success');
+                    updateReportBtn();
+                }, 2000);
+            } catch (e) {
+                reportBtn.disabled = false;
+                console.warn('Failed to report assessment:', e);
+            }
         });
 
         populateCourses();
@@ -538,6 +707,46 @@ function escHtml(str) {
 
         loadSessions();
         window.addEventListener('enrollments-changed', loadSessions);
+    })();
+
+    // ── Classmates ──
+    (function() {
+        var listEl = document.getElementById('classmates-list');
+        var searchInput = document.getElementById('classmate-search-input');
+        if (!listEl) return;
+
+        function renderClassmate(c) {
+            var courses = c.courses.map(function(cr) {
+                return '<span class="classmate-course-chip">' + escHtml(cr.department) + escHtml(cr.identifier) + '</span>';
+            }).join(' ');
+            return '<div class="classmate-item">' +
+                '<span class="classmate-name">' + escHtml(c.first_name) + ' ' + escHtml(c.last_name) + '</span>' +
+                '<span class="classmate-courses">' + (courses || '<span style="color:#888;">No visible courses</span>') + '</span>' +
+            '</div>';
+        }
+
+        var searchTimer = null;
+        searchInput.addEventListener('input', function() {
+            var q = searchInput.value.trim();
+            clearTimeout(searchTimer);
+            if (q.length < 2) {
+                listEl.innerHTML = '';
+                return;
+            }
+            searchTimer = setTimeout(async function() {
+                try {
+                    var res = await fetch('/api/my/search_students?q=' + encodeURIComponent(q));
+                    var data = await res.json();
+                    if (!data.length) {
+                        listEl.innerHTML = '<div class="user-course-empty">No students found.</div>';
+                    } else {
+                        listEl.innerHTML = data.map(renderClassmate).join('');
+                    }
+                } catch(e) {
+                    listEl.innerHTML = '<div class="user-course-empty">Could not load classmates.</div>';
+                }
+            }, 300);
+        });
     })();
 
 })();

@@ -30,17 +30,17 @@ def validate_password(password: str) -> Optional[str]:
 
 
 def get_user_profile(student_id: int) -> dict:
-    """Fetch a user's display info (name, discord_id, sharing) from the DB."""
+    """Fetch a user's display info (name, discord_id, sharing, dark_mode) from the DB."""
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT first_name, last_name, discord_id, sharing FROM students WHERE student_id = %s",
+                "SELECT first_name, last_name, discord_id, sharing, dark_mode FROM students WHERE student_id = %s",
                 (student_id,)
             )
             row = cur.fetchone()
     if row:
-        return {"first_name": row[0], "last_name": row[1], "discord_id": row[2], "sharing": row[3]}
-    return {"first_name": "", "last_name": "", "discord_id": None, "sharing": "common_class"}
+        return {"first_name": row[0], "last_name": row[1], "discord_id": row[2], "sharing": row[3], "dark_mode": row[4]}
+    return {"first_name": "", "last_name": "", "discord_id": None, "sharing": "common_class", "dark_mode": False}
 
 
 current_dir = os.path.dirname(os.path.abspath(__file__))

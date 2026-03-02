@@ -5,9 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Study Sessions</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/user.css">
+    <link rel="stylesheet" href="/static/css/dark.css">
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
 </head>
-<body>
+<body{% if user_profile.dark_mode %} class="dark"{% endif %}>
     <div class="portal-container">
         <div class="navbar-wrapper">
             <nav class="navbar">
@@ -43,6 +47,7 @@
             <div id="schedule-session-panel" class="wipe-panel hidden" style="min-width:480px;max-width:560px;">
                 <p class="wipe-panel-title" style="color:#2c3e50;">Schedule Study Session</p>
                 <input type="hidden" id="schedule-exam-id">
+                <input type="hidden" id="schedule-session-id">
                 <div id="schedule-exam-info" style="margin-bottom:16px;"></div>
                 <div class="form-group">
                     <label for="schedule-tutor-select">Tutor</label>
@@ -106,8 +111,9 @@
             </div>
 
             <div id="edit-user-backdrop" class="wipe-backdrop hidden" onclick="closeEditModal()"></div>
-            <div id="edit-user-panel" class="wipe-panel hidden">
-                <p class="wipe-panel-title">Edit User</p>
+            <div id="edit-user-panel" class="wipe-panel hidden" style="max-width:720px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;">
+                <p class="wipe-panel-title" style="flex-shrink:0;">Edit User</p>
+                <div style="overflow-y:auto;flex:1;padding:0 4px;">
                 <input type="hidden" id="edit-user-id">
                 <div class="form-group">
                     <label for="edit-first-name">First Name</label>
@@ -121,10 +127,34 @@
                     <label for="edit-discord-id">Discord ID</label>
                     <input type="text" id="edit-discord-id" pattern="[0-9]+" title="Discord ID must be numeric">
                 </div>
+
+                <div class="edit-user-section">
+                    <label>Enrollments (current term)</label>
+                    <div id="edit-user-enrollments" class="edit-user-course-list"></div>
+                    <div class="form-group" style="margin:8px 0 0;position:relative;">
+                        <input type="text" id="edit-enroll-search" placeholder="Add course..." autocomplete="off">
+                        <div id="edit-enroll-dropdown" class="course-search-dropdown hidden"></div>
+                    </div>
+                </div>
+
+                <div class="edit-user-section">
+                    <label>Tutor Capabilities</label>
+                    <div id="edit-user-tutors" class="edit-user-course-list"></div>
+                    <div style="display:flex;gap:8px;align-items:end;margin-top:8px;">
+                        <div class="form-group" style="margin:0;flex:1;position:relative;">
+                            <input type="text" id="edit-tutor-search" placeholder="Add course..." autocomplete="off">
+                            <div id="edit-tutor-dropdown" class="course-search-dropdown hidden"></div>
+                        </div>
+                        <input type="number" id="edit-tutor-confidence" min="1" max="10" value="7" style="width:60px;padding:6px 8px;font-size:13px;" title="Confidence (1-10)">
+                        <button type="button" id="edit-tutor-add-btn" class="btn-action btn-elevate" disabled style="white-space:nowrap;">Add Tutor</button>
+                    </div>
+                </div>
+
                 <p id="edit-user-error" class="exam-preview-error hidden" style="margin-bottom: 12px;"></p>
-                <div class="wipe-actions">
+                <div class="wipe-actions" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee;">
                     <button type="button" id="edit-user-save-btn" class="btn-action btn-elevate" onclick="saveEditUser()">Save Changes</button>
                     <button type="button" class="btn-action" onclick="closeEditModal()">Cancel</button>
+                </div>
                 </div>
             </div>
         </div>
@@ -134,6 +164,7 @@
             <p class="portal-message">{{ message }}</p>
             {% endif %}
 
+            {% if show_checklist %}
             <div class="semester-checklist" id="semester-checklist">
                 <strong>New Semester Checklist</strong>
                 <ol>
@@ -142,8 +173,9 @@
                     <li>Upload exam schedules (Common Hour PDF and/or Finals PDF)</li>
                     <li>Have students enroll in their classes and set tutor capabilities</li>
                 </ol>
-                <button type="button" class="btn-action semester-checklist-dismiss" onclick="this.parentElement.classList.add('hidden')">Dismiss</button>
+                <button type="button" class="btn-action semester-checklist-dismiss" onclick="dismissChecklist(this)">Dismiss</button>
             </div>
+            {% endif %}
 
             <div class="admin-sections-row">
                 <div class="import-column">
@@ -263,6 +295,7 @@
 
             <div class="admin-section" id="pending-assessments-section">
                 <h3>Todos</h3>
+                <div id="no-tutor-pending-container"></div>
                 <div id="pending-assessments-container"><p style="color:#888;font-size:13px;">Loading…</p></div>
             </div>
 
@@ -272,7 +305,8 @@
             </div>
 
             <div class="admin-section" id="restore-exams-section">
-                <h3>Restore Deleted Exams</h3>
+                <h3>Restore &amp; Review</h3>
+                <div id="restore-filter-bar" class="restore-filter-bar"></div>
                 <div id="restore-exams-container"><p style="color:#888;font-size:13px;">Loading&hellip;</p></div>
             </div>
 
@@ -305,6 +339,9 @@
                                         <div class="user-table-avatar-initials">{{ ((u.first_name or '?')[0] ~ (u.last_name or '')[0:1])|upper }}</div>
                                     </div>
                                     {{ u.first_name }} {{ u.last_name }}
+                                    {% if not u.is_root and not u.graduated_date and not u.has_schedule %}
+                                    <span class="badge badge-no-schedule">No Schedule</span>
+                                    {% endif %}
                                 </div>
                             </td>
                             <td>

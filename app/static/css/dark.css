@@ -1,0 +1,327 @@
+/* ───── Dark Mode ───── */
+body.dark {
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+}
+
+/* Containers & main layout */
+body.dark .login-container,
+body.dark .portal-container {
+    background-color: #1a1a1a;
+}
+body.dark .login-container {
+    background: #242424;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+}
+body.dark .login-container h1,
+body.dark .login-container h2 { color: #e0e0e0; }
+body.dark .login-container h2 { color: #a0a0a0; }
+body.dark .content {
+    background: #242424;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+body.dark .content h2 { color: #e0e0e0; }
+body.dark .content p { color: #a0a0a0; }
+body.dark .info { background-color: #2a2a2a; color: #a0a0a0; }
+
+/* Navbar */
+body.dark .navbar {
+    background-color: #242424;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+body.dark .navbar h1 { color: #e0e0e0; }
+body.dark .portal-link { color: #a0c4e8; border-color: #a0c4e8; }
+body.dark .portal-link:hover { background-color: #a0c4e8; color: #1a1a1a; }
+body.dark .logout-btn { background-color: #c0392b; }
+
+/* Nav avatar */
+body.dark .nav-avatar-btn { border-color: #444; }
+body.dark .nav-avatar-btn:hover { border-color: #888; }
+body.dark .nav-avatar-initials { background-color: #3a3a3a; color: #e0e0e0; }
+body.dark .avatar-menu {
+    background-color: #242424;
+    border-color: #333;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+body.dark .avatar-menu a { color: #e0e0e0; }
+body.dark .avatar-menu a:hover { background-color: #2e2e2e; }
+
+/* Form elements */
+body.dark label { color: #b0b0b0; }
+body.dark .form-group label { color: #b0b0b0; }
+body.dark input[type="text"],
+body.dark input[type="password"],
+body.dark input[type="datetime-local"],
+body.dark input[type="date"],
+body.dark input[type="number"],
+body.dark input[type="file"],
+body.dark select,
+body.dark textarea {
+    background-color: #1a1a1a;
+    border-color: #444;
+    color: #e0e0e0;
+}
+body.dark input:focus,
+body.dark select:focus { border-color: #a0c4e8; }
+body.dark button { background-color: #3a3a3a; color: #e0e0e0; }
+body.dark button:hover { background-color: #444; }
+body.dark button:disabled { background-color: #3a3a3a; color: #666; }
+body.dark .password-toggle { color: #888; }
+body.dark .password-toggle:hover { background: none; color: #e0e0e0; }
+body.dark .password-requirements li { color: #a0a0a0; }
+body.dark .password-requirements li.met { color: #27ae60; }
+body.dark .password-requirements li.unmet { color: #e74c3c; }
+
+/* Buttons */
+body.dark .btn-action { background-color: #333; color: #e0e0e0; }
+body.dark .btn-action:hover { background-color: #3a3a3a; }
+body.dark .btn-action.btn-elevate { background-color: #3a4a3a; color: #c0d0c0; }
+body.dark .btn-action.btn-elevate:hover { background-color: #445544; }
+body.dark .btn-action.btn-delete { background-color: #922b21; }
+body.dark .btn-action.btn-delete:hover { background-color: #c0392b; }
+body.dark .btn-action.btn-demote { background-color: #5c4033; }
+body.dark .btn-action.btn-graduate { background-color: #1a5276; }
+body.dark .btn-delete { border-color: #444; color: #888; }
+body.dark .btn-delete:hover { background-color: #c0392b; border-color: #c0392b; color: white; }
+body.dark .change-btn { color: #a0c4e8; }
+body.dark .change-btn:hover { background: none; color: #b8d4f0; }
+
+/* Messages & banners */
+body.dark .portal-message { background-color: #1a2e1a; border-color: #27ae60; color: #a0d0a0; }
+body.dark .error-banner { background-color: #2e1a1a; border-color: #c0392b; color: #e07070; }
+body.dark .support-note { color: #888; }
+body.dark .support-note a { color: #a0c4e8; }
+body.dark .login-container .support-note { color: #666; }
+
+/* Sections */
+body.dark .user-section {
+    background-color: #242424;
+    padding: 16px;
+    border-radius: 6px;
+}
+body.dark .admin-section {
+    background-color: #242424;
+    border: 1px solid #333;
+    border-radius: 4px;
+}
+body.dark .user-section h2,
+body.dark .admin-section h3 { color: #e0e0e0; }
+body.dark .admin-section ul { color: #a0a0a0; }
+
+/* Login page */
+body.dark .search-dropdown {
+    background: #242424;
+    border-color: #333;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+body.dark .search-item { color: #e0e0e0; }
+body.dark .search-item:hover,
+body.dark .search-item.active { background-color: #2e2e2e; color: #e0e0e0; }
+body.dark .search-item-avatar-placeholder { background-color: #444; }
+body.dark .selected-user-card { background: #1a1a1a; border-color: #333; }
+body.dark .avatar-placeholder { background-color: #444; }
+body.dark .selected-user-info span { color: #e0e0e0; }
+body.dark .root-login { border-color: #333; }
+body.dark .root-login summary { color: #888; }
+body.dark .root-login summary:hover { color: #a0a0a0; }
+body.dark .admin-badge { background-color: #2e1a1a; border-color: #922b21; }
+body.dark .admin-badge strong { color: #e07070; }
+body.dark .admin-badge p { color: #a0a0a0; }
+
+/* Tables */
+body.dark .user-table {
+    background: #242424;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+body.dark .user-table th {
+    background-color: #1a1a1a;
+    color: #a0a0a0;
+    border-color: #333;
+}
+body.dark .user-table td { border-color: #333; }
+body.dark .user-table tr:hover td { background-color: #2e2e2e; }
+body.dark .user-table-avatar-initials { background-color: #444; }
+
+/* Badges */
+body.dark .badge { opacity: 0.9; }
+body.dark .badge-root { background-color: #3e1a1a; color: #e0a0a0; }
+body.dark .badge-admin { background-color: #3e3a1a; color: #e0d0a0; }
+body.dark .badge-user { background-color: #333; color: #b0b0b0; }
+body.dark .badge-no-auth { background-color: #3e3a1a; color: #e0d0a0; }
+body.dark .badge-no-schedule { background-color: #3e1a2a; color: #e0a0b0; }
+body.dark .badge-skipped { background-color: #3e2a1a; color: #e0c0a0; }
+
+/* Course items */
+body.dark .user-course-item { background-color: #1a1a1a; border-color: #333; }
+body.dark .user-course-item:hover { background-color: #2e2e2e; }
+body.dark .user-course-code { color: #a0c4e8; }
+body.dark .user-course-title { color: #a0a0a0; }
+body.dark .user-course-empty { color: #666; }
+body.dark .user-course-remove { color: #666; border-color: #444; }
+body.dark .user-course-remove:hover { background: #3e1a1a; color: #e07070; border-color: #c0392b; }
+body.dark .no-tutor-report-btn { color: #666; border-color: #444; }
+body.dark .no-tutor-report-btn:hover { background: #2e2a1a; color: #e0d0a0; border-color: #a08030; }
+
+/* Course search */
+body.dark .course-search-results {
+    background-color: #242424;
+    border-color: #333;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+body.dark .course-search-item { border-color: #333; }
+body.dark .course-search-item:hover { background-color: #2e2e2e; }
+body.dark .course-search-code { color: #a0c4e8; }
+body.dark .course-search-title { color: #a0a0a0; }
+body.dark .course-search-meta { color: #666; }
+body.dark .course-search-empty { color: #666; }
+body.dark .course-search-dropdown {
+    background-color: #242424;
+    border-color: #333;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+/* Tutor section */
+body.dark .confidence-badge { background: #2e2e2e; color: #a0a0a0; opacity: 1; }
+body.dark .tutor-conf-edit { color: #aaa; }
+body.dark .tutor-conf-edit:hover { background: none; color: #fff; }
+body.dark .user-course-item .tutor-conf-input { border-color: #444; }
+body.dark .tutor-add-panel { background: #2a2a2a; border-color: #444; }
+body.dark .tutor-selected-name { color: #e0e0e0; }
+body.dark .tutor-confidence-row label { color: #a0a0a0; }
+body.dark .confidence-range { color: #888; }
+body.dark .tutor-recommendations {
+    background-color: #2a2a2a;
+    border-color: #444;
+}
+body.dark .tutor-rec-header { background: #2a2a2a; color: #a0a0a0; border-color: #444; }
+body.dark .tutor-rec-item { border-color: #444; }
+body.dark .tutor-rec-no { color: #666; border-color: #444; }
+body.dark .tutor-rec-no:hover { background: #3e1a1a; color: #e07070; border-color: #c0392b; }
+
+/* Course tutors & study sessions */
+body.dark .course-tutors-row { color: #a0a0a0; border-color: #333; }
+body.dark .tutors-label { color: #888; }
+body.dark .tutor-chip { background-color: #1e2a36; color: #a0c4e8; border-color: #2a3a4a; }
+body.dark .tutor-from { color: #888; }
+body.dark .course-classmates-row { color: #a0a0a0; }
+body.dark .classmate-chip { background-color: #2a1e36; color: #c4a0e8; border-color: #3a2a4a; }
+body.dark .study-session-meta { color: #888; }
+body.dark .study-session-tutor { color: #a0c4e8; }
+body.dark .study-session-tutor.is-tutor { color: #b8d4f0; }
+
+/* Assessments */
+body.dark .assessment-date-header { color: #a0a0a0; border-color: #333; }
+body.dark .assessment-dispute-btn { color: #666; border-color: #444; }
+body.dark .assessment-dispute-btn:hover { background: #3e1a1a; color: #e07070; border-color: #c0392b; }
+body.dark .assessment-type-test { background: #2e1a3e; color: #c0a0e0; }
+body.dark .assessment-type-quiz { background: #1a2e1a; color: #a0d0a0; }
+body.dark .assessment-type-final { background: #2e2a1a; color: #e0d0a0; }
+body.dark .assessment-type-common { background: #1a2a3e; color: #a0c0e0; }
+
+/* Upcoming exams */
+body.dark .upcoming-exams-date { color: #888; border-color: #333; }
+body.dark .upcoming-exam-course { color: #a0c4e8; }
+body.dark .upcoming-exam-title { color: #888; }
+
+/* Exam calendar */
+body.dark .exam-cal-grid { border-color: #333; }
+body.dark .exam-cal-day { border-color: #333; }
+body.dark .exam-cal-day.has-exams { background-color: #2e2e2e; }
+body.dark .exam-cal-dow { color: #888; }
+body.dark .exam-cal-day-num { color: #555; }
+body.dark .exam-cal-day.has-exams .exam-cal-day-num { color: #e0e0e0; }
+body.dark .exam-cal-nav-btn { border-color: #444; color: #e0e0e0; background: none; }
+body.dark .exam-cal-nav-btn:hover { background: #333; }
+body.dark .exam-cal-today-btn { color: #a0a0a0; }
+body.dark .exam-cal-month-select { background: #1a1a1a; border-color: #444; color: #e0e0e0; }
+body.dark .exam-cal-chip-common_hour { background: #1a2a3e; color: #a0c0e0; }
+body.dark .exam-cal-chip-in_class { background: #2e1a3e; color: #c0a0e0; }
+body.dark .exam-cal-chip-quiz { background: #1a2e1a; color: #a0d0a0; }
+body.dark .exam-cal-chip-final { background: #2e2a1a; color: #e0d0a0; }
+
+/* Sharing / privacy */
+body.dark .sharing-option { border-color: #444; }
+body.dark .sharing-option:hover { border-color: #a0c4e8; background: #2a2a2a; }
+body.dark .sharing-option-selected { border-color: #a0c4e8; background: #2a2a2a; }
+body.dark .sharing-option-title { color: #e0e0e0; }
+body.dark .sharing-option-desc { color: #888; }
+
+/* Course links */
+body.dark .course-link-chip { background-color: #333; color: #e0e0e0; border-color: #444; }
+body.dark .course-link-group { border-color: #333; }
+body.dark .course-link-arrow { color: #666; }
+body.dark .course-link-suggestion { color: #a0a0a0; }
+body.dark .link-type-badge { opacity: 0.85; }
+body.dark .link-type-strong { background: #1a2a3e; color: #a0c0e0; }
+body.dark .link-type-weak { background: #2e2a1a; color: #e0d0a0; }
+body.dark .link-help-btn { background: #333; color: #a0a0a0; }
+body.dark .link-help-btn:hover { background: #3a3a3a; }
+body.dark .link-help-detail { background-color: #1a1a1a; border-color: #333; color: #a0a0a0; }
+body.dark .missing-courses-link { color: #e07070; }
+body.dark .missing-courses-detail { background: #2e1a1a; border-color: #3e2a2a; }
+body.dark .missing-course-badge { background-color: #3e1a1a; color: #e0a0a0; }
+
+/* Wipe / backup */
+body.dark .wipe-panel,
+body.dark .wipe-backdrop + .wipe-panel {
+    background-color: #242424;
+    border-color: #c0392b;
+    color: #e0e0e0;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+body.dark .wipe-panel-title { color: #e0e0e0 !important; }
+body.dark .wipe-backdrop { background-color: rgba(0,0,0,0.7); }
+body.dark .wipe-option { color: #a0a0a0; }
+body.dark .wipe-option code { background: #333; color: #e0e0e0; }
+body.dark .wipe-section-label { color: #888; }
+body.dark .wipe-term-option { color: #a0a0a0; }
+body.dark .wipe-badge { background-color: #333; color: #a0a0a0; }
+body.dark .wipe-badge-users { background-color: #1a2a3e; color: #a0c0e0; }
+body.dark .wipe-badge-exams { background-color: #1a2e1a; color: #a0d0a0; }
+body.dark .wipe-badge-courses { background-color: #2e2a1a; color: #e0d0a0; }
+body.dark .wipe-badge-cache { background-color: #2e1a3e; color: #c0a0e0; }
+body.dark .backup-item { background-color: #1a1a1a; border-color: #333; }
+body.dark .backup-item:hover { background-color: #2e2e2e; }
+body.dark .backup-item-date { color: #e0e0e0; }
+body.dark .backup-item-count { color: #888; }
+body.dark .backups-loading { color: #666; }
+body.dark .restore-filter-chip { background: #2a2a2a; border-color: #444; color: #ccc; }
+body.dark .restore-filter-chip:hover { background: #333; border-color: #5a8abf; color: #e0e0e0; }
+body.dark .restore-filter-chip.active { background: #2a6fb5; border-color: #2a6fb5; color: #fff; }
+
+/* Semester checklist */
+body.dark .semester-checklist {
+    background-color: #2a2a2a;
+    border-color: #444;
+    border-left-color: #3498db;
+    color: #c0c0c0;
+}
+body.dark .semester-checklist strong { color: #a0c4e8; }
+body.dark .semester-checklist ol { color: #a0a0a0; }
+body.dark .semester-checklist-dismiss { color: #888; border-color: #444; }
+body.dark .semester-checklist-dismiss:hover { background: #333; color: #e0e0e0; }
+
+/* Import sections */
+body.dark .import-term-label { color: #a0c4e8; }
+body.dark .exam-preview-summary { color: #a0a0a0; }
+body.dark .exam-preview-error { color: #e74c3c; }
+body.dark .exam-pdf-status-label { color: #a0a0a0; }
+body.dark .finals-format-note { color: #666; }
+body.dark .course-cache-wipe { border-color: #333; color: #888; }
+body.dark #discord-preview span { color: #a0a0a0; }
+
+/* Classmates */
+body.dark .classmate-item { background-color: #1a1a1a; border-color: #333; }
+body.dark .classmate-name { color: #e0e0e0; }
+body.dark .classmate-course-chip { background-color: #333; color: #a0c4e8; }
+body.dark .classmate-search-results { background-color: #242424; border-color: #333; }
+
+/* Edit user modal */
+body.dark .edit-user-section { border-color: #333; }
+body.dark .edit-user-section > label { color: #a0a0a0; }
+body.dark #edit-user-panel .wipe-actions { border-color: #333; }
+
+/* Form subtitle & back links */
+body.dark .form-subtitle { color: #888; }
+body.dark .form-back-link { color: #888; }
+body.dark .form-back-link:hover { color: #a0a0a0; }

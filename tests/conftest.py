@@ -210,3 +210,44 @@ def client(_patch_db):
     """A TestClient with all DB calls mocked out."""
     from app.main import app
     return _TestClient(app, follow_redirects=False)
+
+
+# ---------------------------------------------------------------------------
+# Benchmark results collection
+# ---------------------------------------------------------------------------
+
+_benchmark_results = {}
+
+
+@pytest.fixture()
+def bench_record():
+    """Fixture to record a benchmark timing. Usage: bench_record("label", elapsed)"""
+    def record(label, elapsed):
+        _benchmark_results[label] = elapsed
+    return record
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Write benchmark results to BENCHMARK_RESULTS.md if any were collected."""
+    if not _benchmark_results:
+        return
+    import pathlib, re
+    root = pathlib.Path(__file__).resolve().parent.parent
+
+    def sort_key(label):
+        m = re.search(r"\((\d+)\)$", label)
+        name = re.sub(r"\s*\(\d+\)$", "", label)
+        return (name, int(m.group(1)) if m else 0)
+
+    lines = ["# Benchmark Results\n\n"]
+    lines.append(f"_Last run: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_\n\n")
+    lines.append("| Endpoint | Size | Time (ms) |\n")
+    lines.append("|---|---|---|\n")
+    for label in sorted(_benchmark_results, key=sort_key):
+        ms = _benchmark_results[label] * 1000
+        parts = label.rsplit(" ", 1)
+        endpoint = parts[0]
+        size = parts[1] if len(parts) > 1 else ""
+        lines.append(f"| {endpoint} | {size} | {ms:.1f} |\n")
+    lines.append("\n_Generated automatically by `pytest tests/test_benchmarks.py`_\n")
+    (root / "BENCHMARK_RESULTS.md").write_text("".join(lines))

@@ -87,7 +87,8 @@ async def get_all_courses():
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT c.course_id, c.department, c.identifier, c.title, c.semester_hours
+                SELECT c.course_id, c.department, c.identifier, c.title, c.semester_hours,
+                       c.no_tutor_needed, c.no_tutor_pending
                 FROM courses c, current_term ct
                 WHERE (c.last_offered).academic_year = ct.academic_year
                   AND (c.last_offered).season = ct.season
@@ -101,6 +102,8 @@ async def get_all_courses():
                     "combined": f"{r[1]}{r[2]}",
                     "title": html.unescape(r[3]) if r[3] else r[3],
                     "semester_hours": r[4],
+                    "no_tutor_needed": r[5],
+                    "no_tutor_pending": r[6],
                 }
                 for r in cur.fetchall()
             ]

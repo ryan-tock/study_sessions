@@ -372,12 +372,25 @@ class TestCourseTutors:
     def test_get_my_course_tutors(self, client):
         with patch("app.routes.user.get_db_for_user") as mock_db:
             conn = FakeConnection()
+            # Query sequence per enrolled course:
+            # 1. fetchall: enrolled course IDs
+            # 2. Per course: fetchone(linked_any), fetchone(linked_strong),
+            #    fetchall(tutors), fetchone(course_info)
             conn._cursor._fetchall_results = [
-                [
-                    (10, "MATH", "213", "Calc III", "John", "Smith", 8),
-                    (10, "MATH", "213", "Calc III", "Jane", "Doe", 7),
-                    (20, "CSCI", "200", "OOP", "Bob", "Brown", 9),
-                ],
+                [(10,), (20,)],  # enrolled IDs
+                # course 10 tutors
+                [(100, "John", "Smith", 8, 10, "MATH", "213"),
+                 (101, "Jane", "Doe", 7, 10, "MATH", "213")],
+                # course 20 tutors
+                [(102, "Bob", "Brown", 9, 20, "CSCI", "200")],
+            ]
+            conn._cursor._results = [
+                ([10],),    # linked_course_ids_any(10)
+                ([10],),    # linked_course_ids(10)
+                (10, "MATH", "213", "Calc III"),  # course info for 10
+                ([20],),    # linked_course_ids_any(20)
+                ([20],),    # linked_course_ids(20)
+                (20, "CSCI", "200", "OOP"),  # course info for 20
             ]
             @contextmanager
             def dbu(user):

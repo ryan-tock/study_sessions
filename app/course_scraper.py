@@ -171,7 +171,8 @@ async def fetch_courses(
     slugs = _DEPT_LINK_PAT.findall(index_html)
     if not slugs:
         raise RuntimeError(
-            "No departments found on catalog page — page structure may have changed"
+            "No departments found on catalog page — the website format may have changed. "
+            "Please email scholarship@r71.org for help."
         )
 
     tasks = [
@@ -187,5 +188,11 @@ async def fetch_courses(
             errors.append(f"{slug}: {err}")
         elif html:
             courses.extend(parse_dept_html(html))
+
+    if not courses and not errors:
+        raise RuntimeError(
+            "No courses could be parsed from the catalog pages — the website format may have "
+            "changed. Please email scholarship@r71.org for help."
+        )
 
     return courses, errors

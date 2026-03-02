@@ -78,6 +78,42 @@ async def admin_portal(request: Request, user: dict = Depends(require_admin), me
                 current_term = {"academic_year": row[0], "season": row[1]} if row else None
     except Exception:
         pass
+    # Auto-apply confidence decay for graduated tutors (once per term)
+    if current_term:
+        try:
+            _yr = int(current_term["academic_year"])
+            _sn = str(current_term["season"])
+            with get_db() as conn_decay:
+                with conn_decay.cursor() as cur_decay:
+                    cur_decay.execute(
+                        "SELECT 1 FROM confidence_decay_log WHERE academic_year = %s AND season = %s::term_season",
+                        (_yr, _sn)
+                    )
+                    if not cur_decay.fetchone():
+                        # Decrease confidence by 1 for all graduated tutors
+                        cur_decay.execute("""
+                            UPDATE tutors SET confidence = confidence - 1
+                            FROM students s
+                            WHERE tutors.student_id = s.student_id
+                              AND s.graduated_date IS NOT NULL
+                              AND tutors.confidence > 0
+                        """)
+                        # Remove tutors where confidence hit 0
+                        cur_decay.execute("""
+                            DELETE FROM tutors
+                            USING students s
+                            WHERE tutors.student_id = s.student_id
+                              AND s.graduated_date IS NOT NULL
+                              AND tutors.confidence <= 0
+                        """)
+                        # Mark this term as processed
+                        cur_decay.execute(
+                            "INSERT INTO confidence_decay_log (academic_year, season) VALUES (%s, %s::term_season)",
+                            (_yr, _sn)
+                        )
+                conn_decay.commit()
+        except Exception:
+            pass
     # Compute which data files exist for the current term + DB status
     _SL = {"spring": "A", "fall": "B"}
     ct_status = {
@@ -119,6 +155,43 @@ async def admin_portal(request: Request, user: dict = Depends(require_admin), me
                     ct_status["finals_in_db"] = cur2.fetchone()[0]
         except Exception:
             pass
+    # Determine which users have enrollments for the current term
+    enrolled_student_ids: set[int] = set()
+    if current_term:
+        try:
+            with get_db() as conn3:
+                with conn3.cursor() as cur3:
+                    cur3.execute("""
+                        SELECT DISTINCT student_id FROM enrollments
+                        WHERE (term).academic_year = %s
+                          AND (term).season = %s::term_season
+                    """, (int(current_term["academic_year"]), str(current_term["season"])))
+                    enrolled_student_ids = {r[0] for r in cur3.fetchall()}
+        except Exception:
+            pass
+    for u in users:
+        u["has_schedule"] = u["student_id"] in enrolled_student_ids
+
+    # Determine if the new-semester checklist should show
+    show_checklist = False
+    if current_term:
+        try:
+            with get_db() as conn_cl:
+                with conn_cl.cursor() as cur_cl:
+                    cur_cl.execute(
+                        "SELECT (last_seen_term).academic_year, (last_seen_term).season FROM student_auth WHERE student_id = %s",
+                        (user["student_id"],)
+                    )
+                    row_cl = cur_cl.fetchone()
+                    if row_cl and (row_cl[0] is None or row_cl[1] is None):
+                        show_checklist = True
+                    elif row_cl and (int(row_cl[0]) != int(current_term["academic_year"]) or str(row_cl[1]) != str(current_term["season"])):
+                        show_checklist = True
+                    elif not row_cl:
+                        show_checklist = True
+        except Exception:
+            pass
+
     return templates.TemplateResponse(request, "admin_portal.html", {
         "user": user,
         "user_profile": get_user_profile(user["student_id"]),
@@ -127,7 +200,24 @@ async def admin_portal(request: Request, user: dict = Depends(require_admin), me
         "current_term": current_term,
         "current_term_status": ct_status,
         "wipe_terms": _list_wipeble_terms(),
+        "show_checklist": show_checklist,
     })
+
+
+@router.post("/admin/api/dismiss_checklist")
+async def dismiss_checklist(user: dict = Depends(require_admin)):
+    """Mark the current term's checklist as seen for this admin."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT academic_year, season FROM current_term")
+            term = cur.fetchone()
+            if term:
+                cur.execute(
+                    "UPDATE student_auth SET last_seen_term = ROW(%s, %s::term_season)::academic_term WHERE student_id = %s",
+                    (term[0], term[1], user["student_id"])
+                )
+        conn.commit()
+    return {"ok": True}
 
 
 @router.post("/admin/set_admin", response_class=HTMLResponse)
@@ -193,6 +283,130 @@ async def api_edit_user(
         conn.commit()
     if discord_id and discord_id != old_discord:
         background_tasks.add_task(download_and_cache_avatar, target_id, discord_id)
+    return {"ok": True}
+
+
+# ── Admin: manage enrollments / tutor capabilities for any user ──
+
+@router.get("/admin/api/user/{student_id}/enrollments")
+async def admin_get_user_enrollments(student_id: int, _: dict = Depends(require_admin)):
+    """Get a user's current-term enrollments."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.course_id, c.department, c.identifier, c.title
+                FROM enrollments e
+                JOIN courses c ON e.course_id = c.course_id
+                CROSS JOIN current_term ct
+                WHERE e.student_id = %s
+                  AND (e.term).academic_year = ct.academic_year
+                  AND (e.term).season = ct.season
+                ORDER BY c.department, c.identifier
+            """, (student_id,))
+            rows = cur.fetchall()
+    return [
+        {"course_id": r[0], "department": r[1], "identifier": r[2], "title": r[3]}
+        for r in rows
+    ]
+
+
+@router.post("/admin/api/user/{student_id}/enrollments")
+async def admin_add_user_enrollment(
+    student_id: int,
+    _: dict = Depends(require_admin),
+    course_id: int = Form(...)
+):
+    """Add a course enrollment for a user in the current term."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT academic_year, season FROM current_term")
+            term = cur.fetchone()
+            if not term:
+                raise HTTPException(400, "Could not determine current term")
+            cur.execute(
+                """INSERT INTO enrollments (student_id, course_id, term)
+                   VALUES (%s, %s, ROW(%s, %s::term_season)::academic_term)
+                   ON CONFLICT DO NOTHING""",
+                (student_id, course_id, term[0], term[1])
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@router.delete("/admin/api/user/{student_id}/enrollments/{course_id}")
+async def admin_remove_user_enrollment(
+    student_id: int, course_id: int, _: dict = Depends(require_admin)
+):
+    """Remove a user's enrollment for a course (current term only)."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT academic_year, season FROM current_term")
+            term = cur.fetchone()
+            if not term:
+                raise HTTPException(400, "Could not determine current term")
+            cur.execute(
+                """DELETE FROM enrollments
+                   WHERE student_id = %s AND course_id = %s
+                     AND (term).academic_year = %s AND (term).season = %s::term_season""",
+                (student_id, course_id, term[0], term[1])
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@router.get("/admin/api/user/{student_id}/tutor_capabilities")
+async def admin_get_user_tutor_capabilities(student_id: int, _: dict = Depends(require_admin)):
+    """Get a user's tutor capabilities (confidence > 0)."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.course_id, c.department, c.identifier, c.title, t.confidence
+                FROM tutors t
+                JOIN courses c ON t.course_id = c.course_id
+                WHERE t.student_id = %s AND t.confidence > 0
+                ORDER BY c.department, c.identifier
+            """, (student_id,))
+            rows = cur.fetchall()
+    return [
+        {"course_id": r[0], "department": r[1], "identifier": r[2], "title": r[3], "confidence": r[4]}
+        for r in rows
+    ]
+
+
+@router.post("/admin/api/user/{student_id}/tutor_capabilities")
+async def admin_set_user_tutor_capability(
+    student_id: int,
+    _: dict = Depends(require_admin),
+    course_id: int = Form(...),
+    confidence: int = Form(...)
+):
+    """Add or update a tutor capability for a user."""
+    if not 1 <= confidence <= 10:
+        raise HTTPException(400, "Confidence must be between 1 and 10")
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO tutors (student_id, course_id, confidence)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT (student_id, course_id) DO UPDATE SET confidence = EXCLUDED.confidence""",
+                (student_id, course_id, confidence)
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@router.delete("/admin/api/user/{student_id}/tutor_capabilities/{course_id}")
+async def admin_remove_user_tutor_capability(
+    student_id: int, course_id: int, _: dict = Depends(require_admin)
+):
+    """Remove a tutor capability for a user."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM tutors WHERE student_id = %s AND course_id = %s",
+                (student_id, course_id)
+            )
+        conn.commit()
     return {"ok": True}
 
 
@@ -352,8 +566,8 @@ async def get_pending_assessments(_: dict = Depends(require_admin)):
                        e.test_date, e.exam_type, e.course_id
                 FROM exams e
                 JOIN courses c ON e.course_id = c.course_id
-                WHERE NOT e.deleted AND e.confirmed
-                  AND e.test_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days'
+                WHERE NOT e.deleted AND NOT e.skipped AND e.confirmed
+                  AND e.test_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '5 days'
                   AND EXISTS (
                       SELECT 1 FROM enrollments en
                       WHERE en.course_id = e.course_id
@@ -486,7 +700,8 @@ async def delete_exam(exam_id: int, _: dict = Depends(require_admin)):
 
 @router.get("/admin/api/deleted_exams")
 async def get_deleted_exams(_: dict = Depends(require_admin)):
-    """Return soft-deleted exams for the current term. Auto-purges old-term deletions."""
+    """Return soft-deleted and skipped exams for the current term.
+    Auto-purges old-term deletions. Excludes past-date exams from skipped items."""
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT academic_year, season FROM current_term")
@@ -495,52 +710,66 @@ async def get_deleted_exams(_: dict = Depends(require_admin)):
                 return []
             year, season = int(term[0]), str(term[1])
             # Auto-purge: hard-delete soft-deleted exams from previous terms
+            # Also clear skipped flag on past-date exams
             if season == "spring":
-                cur.execute("""
-                    DELETE FROM exams WHERE deleted AND NOT (
-                        EXTRACT(YEAR FROM test_date)::int = %s
-                        AND EXTRACT(MONTH FROM test_date) <= 6
-                    )
-                """, (year,))
+                term_cond = "EXTRACT(YEAR FROM test_date)::int = %s AND EXTRACT(MONTH FROM test_date) <= 6"
             else:
-                cur.execute("""
-                    DELETE FROM exams WHERE deleted AND NOT (
-                        EXTRACT(YEAR FROM test_date)::int = %s
-                        AND EXTRACT(MONTH FROM test_date) > 6
-                    )
-                """, (year,))
+                term_cond = "EXTRACT(YEAR FROM test_date)::int = %s AND EXTRACT(MONTH FROM test_date) > 6"
+            cur.execute(f"DELETE FROM exams WHERE deleted AND NOT ({term_cond})", (year,))
+            cur.execute(f"UPDATE exams SET skipped = FALSE WHERE skipped AND test_date < CURRENT_DATE")
             conn.commit()
-            # Return current-term deleted exams
-            if season == "spring":
-                cur.execute("""
-                    SELECT e.exam_id, c.department, c.identifier, c.title,
-                           e.test_date, e.exam_type
-                    FROM exams e
-                    JOIN courses c ON e.course_id = c.course_id
-                    WHERE e.deleted
-                      AND EXTRACT(YEAR FROM e.test_date)::int = %s
-                      AND EXTRACT(MONTH FROM e.test_date) <= 6
-                    ORDER BY e.test_date, c.department, c.identifier
-                """, (year,))
-            else:
-                cur.execute("""
-                    SELECT e.exam_id, c.department, c.identifier, c.title,
-                           e.test_date, e.exam_type
-                    FROM exams e
-                    JOIN courses c ON e.course_id = c.course_id
-                    WHERE e.deleted
-                      AND EXTRACT(YEAR FROM e.test_date)::int = %s
-                      AND EXTRACT(MONTH FROM e.test_date) > 6
-                    ORDER BY e.test_date, c.department, c.identifier
-                """, (year,))
+            # Return current-term deleted + skipped exams (exclude past-date skipped)
+            cur.execute(f"""
+                SELECT e.exam_id, c.department, c.identifier, c.title,
+                       e.test_date, e.exam_type, e.deleted, e.skipped, e.disputed
+                FROM exams e
+                JOIN courses c ON e.course_id = c.course_id
+                WHERE (e.deleted OR e.skipped)
+                  AND {term_cond}
+                  AND e.test_date >= CURRENT_DATE
+                ORDER BY e.test_date, c.department, c.identifier
+            """, (year,))
             rows = cur.fetchall()
     return [
         {
             "exam_id": r[0], "department": r[1], "identifier": r[2],
             "title": r[3], "test_date": str(r[4]), "exam_type": r[5],
+            "is_deleted": r[6], "is_skipped": r[7], "is_disputed": r[8],
         }
         for r in rows
     ]
+
+
+@router.post("/admin/api/skip_exam")
+async def skip_exam(
+    _: dict = Depends(require_admin),
+    exam_id: int = Form(...),
+):
+    """Skip an exam — removes it from the needs-session todo list."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE exams SET skipped = TRUE WHERE exam_id = %s AND NOT deleted",
+                (exam_id,)
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@router.post("/admin/api/unskip_exam")
+async def unskip_exam(
+    _: dict = Depends(require_admin),
+    exam_id: int = Form(...),
+):
+    """Unskip an exam — restores it to the needs-session todo list."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE exams SET skipped = FALSE WHERE exam_id = %s",
+                (exam_id,)
+            )
+        conn.commit()
+    return {"ok": True}
 
 
 @router.post("/admin/api/restore_exam")
@@ -727,6 +956,7 @@ async def list_study_sessions(_: dict = Depends(require_admin)):
                 JOIN courses c ON e.course_id = c.course_id
                 LEFT JOIN students ts ON ss.tutor_student_id = ts.student_id
                 WHERE NOT e.deleted AND {date_filter}
+                  AND ss.session_timestamp > NOW()
                 ORDER BY ss.session_timestamp, c.department, c.identifier
             """, (year,))
             session_rows = cur.fetchall()
@@ -759,6 +989,45 @@ async def list_study_sessions(_: dict = Depends(require_admin)):
                     "students": students,
                 })
     return sessions
+
+
+@router.put("/admin/api/study_sessions/{session_id}")
+async def update_study_session(
+    session_id: int,
+    _: dict = Depends(require_admin),
+    tutor_student_id: Optional[int] = Form(default=None),
+    session_timestamp: str = Form(...),
+    location: str = Form(default="Study Room"),
+):
+    """Update a study session's tutor, timestamp, or location."""
+    location = location.strip() or "Study Room"
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT exam_id FROM study_sessions WHERE session_id = %s",
+                (session_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Session not found")
+            exam_id = row[0]
+            if tutor_student_id:
+                cur.execute("""
+                    SELECT 1 FROM tutors t
+                    JOIN exams e ON e.exam_id = %s
+                    WHERE t.student_id = %s
+                      AND t.course_id = ANY(linked_course_ids_any(e.course_id))
+                      AND t.confidence > 0
+                """, (exam_id, tutor_student_id))
+                if not cur.fetchone():
+                    raise HTTPException(400, "Selected tutor is not available for this course")
+            cur.execute("""
+                UPDATE study_sessions
+                SET tutor_student_id = %s, session_timestamp = %s::timestamptz, location = %s
+                WHERE session_id = %s
+            """, (tutor_student_id, session_timestamp, location, session_id))
+        conn.commit()
+    return {"ok": True}
 
 
 @router.delete("/admin/api/study_sessions/{session_id}")
@@ -839,6 +1108,92 @@ async def delete_course_link(course_id_a: int, course_id_b: int, _: dict = Depen
             )
         conn.commit()
     return {"ok": True}
+
+
+@router.get("/admin/api/no_tutor_pending")
+async def get_no_tutor_pending(_: dict = Depends(require_admin)):
+    """Return courses with pending no-tutor-needed reports."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.course_id, c.department, c.identifier, c.title
+                FROM courses c, current_term ct
+                WHERE c.no_tutor_pending AND NOT c.no_tutor_needed
+                  AND (c.last_offered).academic_year = ct.academic_year
+                  AND (c.last_offered).season = ct.season
+                ORDER BY c.department, c.identifier
+            """)
+            return [
+                {"course_id": r[0], "department": r[1], "identifier": r[2], "title": r[3]}
+                for r in cur.fetchall()
+            ]
+
+
+@router.post("/admin/api/approve_no_tutor")
+async def approve_no_tutor(
+    _: dict = Depends(require_admin),
+    course_id: int = Form(...),
+):
+    """Approve a no-tutor-needed report."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE courses SET no_tutor_needed = TRUE, no_tutor_pending = FALSE WHERE course_id = %s",
+                (course_id,)
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@router.post("/admin/api/reject_no_tutor")
+async def reject_no_tutor(
+    _: dict = Depends(require_admin),
+    course_id: int = Form(...),
+):
+    """Reject a no-tutor-needed report."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE courses SET no_tutor_pending = FALSE WHERE course_id = %s",
+                (course_id,)
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@router.post("/admin/api/toggle_no_tutor")
+async def toggle_no_tutor(
+    _: dict = Depends(require_admin),
+    course_id: int = Form(...),
+):
+    """Toggle no_tutor_needed for a course."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE courses SET no_tutor_needed = NOT no_tutor_needed, no_tutor_pending = FALSE WHERE course_id = %s",
+                (course_id,)
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@router.get("/admin/api/no_tutor_approved")
+async def get_no_tutor_approved(_: dict = Depends(require_admin)):
+    """Return current-term courses where no_tutor_needed has been approved."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.course_id, c.department, c.identifier, c.title
+                FROM courses c, current_term ct
+                WHERE c.no_tutor_needed
+                  AND (c.last_offered).academic_year = ct.academic_year
+                  AND (c.last_offered).season = ct.season
+                ORDER BY c.department, c.identifier
+            """)
+            return [
+                {"course_id": r[0], "department": r[1], "identifier": r[2], "title": r[3]}
+                for r in cur.fetchall()
+            ]
 
 
 @router.get("/admin/api/course_link_suggestions")

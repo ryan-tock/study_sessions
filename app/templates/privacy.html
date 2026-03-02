@@ -5,13 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Study Sessions</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/user.css">
+    <link rel="stylesheet" href="/static/css/dark.css">
 </head>
-<body>
+<body{% if user_profile and user_profile.dark_mode %} class="dark"{% endif %}>
     <div class="login-container">
         <h1>Study Sessions</h1>
         <h2>Privacy Settings</h2>
-        <p style="text-align: center; color: #7f8c8d; margin-bottom: 25px; font-size: 14px;">
+        <p class="form-subtitle">
             Control who can see which classes you're taking.
         </p>
 
@@ -48,7 +50,7 @@
         </form>
 
         <div style="text-align: center; margin-top: 15px;">
-            <a href="javascript:history.back()" style="color: #7f8c8d; font-size: 14px; text-decoration: none;">Cancel</a>
+            <a href="javascript:history.back()" class="form-back-link">Cancel</a>
         </div>
     </div>
 

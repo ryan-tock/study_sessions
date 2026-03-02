@@ -25,25 +25,33 @@ app/
     auth.py            GET / POST /login POST /logout, rate limiting
     user.py            User portal pages + /api/my/* enrollment/tutor/assessment/session APIs
     admin.py           Admin portal, user CRUD, discord validation, create user,
-                       assessment review, study sessions, course links
+                       assessment review, study sessions, course links,
+                       admin enrollment/tutor management, no-tutor-needed,
+                       semester checklist, confidence decay
     admin_data.py      Backup/restore, wipe, course/exam import, calendar
     public.py          Unauthenticated: /api/users/*, /api/courses, /api/discord_avatar/*
     discord.py         validate_discord_id(), download_and_cache_avatar(), avatar routes
   templates/
     login.html         Login page with name search
-    user_portal.html   Student dashboard (classes, tutors, assessments, study sessions)
+    user_portal.html   Student dashboard (classes, tutors, assessments, study sessions,
+                       classmates, dark mode)
     admin_portal.html  Admin dashboard (users, imports, exams, sessions, links)
     set_password.html  First-login password setup
     change_password.html
     privacy.html       Sharing preference picker
   static/
-    css/style.css      All CSS (includes mobile responsive rules for user portal)
+    css/base.css       Reset, layout, nav, forms, buttons, badges, tables
+      css/admin.css      Admin portal: import, wipe/backup, exam calendar, course links
+      css/user.css       User portal: enrollments, tutors, assessments, classmates, mobile
+      css/dark.css       Dark mode overrides for all components
     js/
       login.js         Fuse.js user search, avatar loading, prefill
       user_portal.js   Course search, enrollments, tutor capabilities, assessments,
-                       study sessions, course tutors
+                       study sessions, course tutors, classmates, dark mode toggle
+                       (uses optimistic UI updates for all CRUD operations)
       admin_portal.js  User management, import workflows, backup UI, exam calendar,
-                       assessment review, study session scheduling, course link modal
+                       assessment review, study session scheduling, course link modal,
+                       edit-user enrollment/tutor management
     avatars/           Cached Discord PNGs (gitignored)
 data/
   {year}_{letter}/     Term dirs (2026_A = Spring 2026, 2025_B = Fall 2025)
@@ -60,9 +68,11 @@ tests/
   test_auth.py         Login/logout/redirect tests
   test_user.py         User portal + enrollment/tutor/assessment/session API tests
   test_admin.py        Admin portal + user management + study session + course link tests
+                       + admin enrollment/tutor management tests
   test_admin_data.py   Backup/restore/wipe + import tests
   test_public.py       Public API tests
   test_discord.py      Avatar serve/fetch + validation tests
+  test_benchmarks.py   Endpoint performance benchmarks at various data sizes
 init.sql               Full DB schema with RLS policies
 reset.sh               Drop/recreate DB, create app_user, insert root account
 ```
@@ -82,8 +92,9 @@ The connection pool is created at module import time (`ThreadedConnectionPool`),
 2. Rate limiter checks: max 5 failed attempts per name per 1-minute window
 3. `authenticate_user()` looks up the student, verifies bcrypt hash, records `last_login`
 4. On success: creates JWT access token (30min) and refresh token (7 days), sets both as httponly cookies
-5. First-time users (`last_login` was NULL) get `is_first_login=True` in the JWT and are redirected to `/user/set_password`
-6. On login, if the user has a Discord ID and their avatar hasn't been checked in 24h, a background task refreshes it
+5. `TokenRefreshMiddleware` in `main.py` auto-refreshes expired JWTs using the refresh token, so users stay logged in for the full 7-day refresh token lifetime without re-authenticating
+6. First-time users (`last_login` was NULL) get `is_first_login=True` in the JWT and are redirected to `/user/set_password`
+7. On login, if the user has a Discord ID and their avatar hasn't been checked in 24h, a background task refreshes it
 
 ## Row-Level Security
 
@@ -112,16 +123,51 @@ Links are managed from the exam view in the admin portal (click the link icon on
 2. Students can dispute imported finals (marks exam as disputed)
 3. Admins see pending/disputed items in the assessment review panel
 4. Admins confirm (approve report / delete disputed final) or revert (reject report / restore disputed final)
-5. Exams within 3 days that lack a study session show as "needs session" todos (deduplicated across strongly linked courses)
+5. Exams within 5 days that lack a study session show as "needs session" todos (deduplicated across strongly linked courses, badge color matches exam type)
 6. Calendar and pending views filter to only show exams with enrolled students
 
 ## Study Sessions
 
 - Created by admins from the scheduling modal (triggered from "needs session" todos or the session list)
+- Editable after creation (tutor, time, location) via the Edit button
+- Past sessions (session_timestamp < now) are automatically hidden from the admin list
 - Tutor is optional (can schedule "open" sessions with no assigned tutor)
 - Tutor validation uses `linked_course_ids_any()` (both strong and weak links)
 - Student lists use `linked_course_ids()` (strong links only)
 - Students see sessions for their enrolled courses + sessions where they are the assigned tutor
+- Backed up to `sessions.json` in the term directory during backup and restored on restore
+
+## Dark Mode
+
+Users can toggle dark mode from the avatar dropdown menu. The preference is stored as a `dark_mode` boolean on the `students` table. The `body.dark` CSS class activates dark theme styles. Applies across all pages (user portal, admin portal, change password, privacy).
+
+## Semester Checklist
+
+The admin portal shows a "New Semester Checklist" when the current term differs from the admin's `last_seen_term` in `student_auth`. Dismissing it updates `last_seen_term` to the current term.
+
+## Graduate Confidence Decay
+
+Each term, graduate tutor confidence decreases by 1 automatically. When confidence reaches 0, the tutor entry is removed. This runs once per term on admin portal load, tracked by the `confidence_decay_log` table.
+
+## Exam Skipping
+
+Admins can skip exams that don't need study sessions. Skipped exams are hidden from the "needs session" todos and shown in the "Restore & Review" section with an "Unskip" option. All items in Restore & Review (deleted, skipped, disputed) are hidden once the exam date passes.
+
+## No-Tutor-Needed Courses
+
+Non-academic courses (e.g. workout classes, music ensembles) can be marked as not needing tutors. Students can report this (`no_tutor_pending`), admins approve/reject via the Todos section. Once approved, the course appears in Restore & Review with a "Revoke" option. Approved courses are hidden from tutor recommendations and tutor search results.
+
+## Disputed Finals
+
+When a student disputes a final exam and the admin agrees (deletes the final), the exam appears in Restore & Review with a "Disputed" badge, allowing the admin to restore it if needed.
+
+## Classmates
+
+The user portal shows classmates who share courses (respecting RLS sharing settings). A search bar allows finding any student by name, with course visibility governed by the target student's sharing preference.
+
+## Optimistic UI
+
+User portal CRUD operations (enrollment add/remove, tutor add/remove, confidence edits) update the DOM immediately before the server responds. If the request fails, the UI reverts to the previous state.
 
 ## Template/JS Pattern
 

@@ -79,7 +79,7 @@ class TestGetAllCourses:
         with patch("app.routes.public.get_db") as mock_db:
             conn = FakeConnection()
             conn._cursor._fetchall_results = [
-                [(1, "CSCI", "101", "Intro to CS", 3), (2, "MATH", "201", "Calculus II", 4)]
+                [(1, "CSCI", "101", "Intro to CS", 3, False, False), (2, "MATH", "201", "Calculus II", 4, False, False)]
             ]
             @contextmanager
             def db():

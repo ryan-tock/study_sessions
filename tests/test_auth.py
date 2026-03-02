@@ -1,6 +1,6 @@
-"""Tests for auth routes: GET /, POST /login, POST /logout."""
+"""Tests for auth routes: GET /, POST /login, POST /logout, token refresh."""
 from unittest.mock import patch, MagicMock
-from tests.conftest import auth_cookies
+from tests.conftest import auth_cookies, make_access_token
 
 
 class TestRootRoute:
@@ -103,3 +103,53 @@ class TestLogout:
         resp = client.post("/logout")
         assert resp.status_code == 302
         mock_revoke.assert_not_called()
+
+
+class TestTokenRefresh:
+    """Test auto-refresh of JWT via refresh token when access token expires."""
+
+    @patch("app.dependencies._try_refresh")
+    def test_expired_jwt_refreshed_via_refresh_token(self, mock_refresh, client):
+        """When access token is expired but refresh token is valid, user stays authenticated."""
+        mock_refresh.return_value = {
+            "student_id": 1, "is_admin": False, "is_root": False, "is_first_login": False,
+        }
+
+        expired_token = make_access_token(student_id=1, expires_minutes=-1)
+        resp = client.get("/", cookies={
+            "access_token": f"Bearer {expired_token}",
+            "refresh_token": "1.validsecret",
+        })
+        # Should redirect to portal (authenticated), not show login
+        assert resp.status_code in (301, 302, 307)
+        assert "/user/portal" in resp.headers["location"]
+        mock_refresh.assert_called_once()
+
+    @patch("app.dependencies._try_refresh", return_value=None)
+    def test_expired_jwt_invalid_refresh_shows_login(self, mock_refresh, client):
+        """When both access token expired and refresh token invalid, show login."""
+        expired_token = make_access_token(student_id=1, expires_minutes=-1)
+        resp = client.get("/", cookies={
+            "access_token": f"Bearer {expired_token}",
+            "refresh_token": "1.invalidsecret",
+        })
+        assert resp.status_code == 200
+        assert "login" in resp.text.lower() or "Study Sessions" in resp.text
+
+    def test_no_tokens_shows_login(self, client):
+        """When no tokens at all, show login page."""
+        resp = client.get("/")
+        assert resp.status_code == 200
+
+    @patch("app.dependencies._try_refresh")
+    def test_no_access_token_but_valid_refresh_token(self, mock_refresh, client):
+        """When access token is missing but refresh token is valid, user stays authenticated."""
+        mock_refresh.return_value = {
+            "student_id": 1, "is_admin": True, "is_root": False, "is_first_login": False,
+        }
+
+        resp = client.get("/", cookies={
+            "refresh_token": "1.validsecret",
+        })
+        assert resp.status_code in (301, 302, 307)
+        assert "/admin/portal" in resp.headers["location"]

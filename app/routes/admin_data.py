@@ -145,7 +145,15 @@ async def preview_exam_pdf(
         else:
             entries = parse_finals_pdf(pdf_bytes)
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Failed to parse PDF: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Failed to parse PDF: {e}. The PDF format may have changed. Please email scholarship@r71.org for help.",
+        )
+    if not entries:
+        raise HTTPException(
+            status_code=422,
+            detail="No exam entries could be read from this PDF. The PDF format may have changed. Please email scholarship@r71.org for help.",
+        )
 
     # Enrich each entry with DB info: course title and whether it's a duplicate
     results = []
@@ -537,7 +545,10 @@ async def import_exams_from_disk(
         else:
             entries = parse_finals_pdf(pdf_bytes)
     except Exception as e:
-        raise HTTPException(422, f"Failed to parse PDF: {e}")
+        raise HTTPException(
+            422,
+            f"Failed to parse PDF: {e}. The PDF format may have changed. Please email scholarship@r71.org for help.",
+        )
 
     inserted = 0
     with get_db_for_user(user) as conn:

@@ -1,3 +1,8 @@
+        window.dismissChecklist = function(btn) {
+            btn.parentElement.classList.add('hidden');
+            fetch('/admin/api/dismiss_checklist', { method: 'POST' }).catch(function() {});
+        };
+
         let showingGraduates = false;
 
         function applyGraduateFilter() {
@@ -897,17 +902,17 @@
             if (!row) return;
             const avatarEl = row.querySelector('.user-table-avatar');
             if (!avatarEl) return;
-            fetch('/api/discord_avatar/' + discordId)
+            fetch('/api/avatar/fetch/' + studentId, { method: 'POST' })
                 .then(r => r.json())
                 .then(data => {
-                    if (!data.avatar_url) return;
+                    if (!data.ok) return;
                     let img = avatarEl.querySelector('img');
                     if (!img) {
                         img = document.createElement('img');
                         img.alt = '';
                         avatarEl.insertBefore(img, avatarEl.firstChild);
                     }
-                    img.src = data.avatar_url;
+                    img.src = '/avatar/' + studentId + '?t=' + Date.now();
                     img.style.display = 'block';
                     const initials = avatarEl.querySelector('.user-table-avatar-initials');
                     if (initials) initials.style.display = 'none';
@@ -915,15 +920,206 @@
                 .catch(() => {});
         }
 
+        // ===== Edit User: enrollment & tutor management =====
+        var _editAllCourses = [];
+        var _editCourseFuse = null;
+        fetch('/api/courses').then(function(r) { return r.json(); }).then(function(c) {
+            _editAllCourses = c;
+            _editCourseFuse = new Fuse(c, {
+                keys: [
+                    { name: 'combined', weight: 2 },
+                    { name: 'identifier', weight: 1.5 },
+                    { name: 'department', weight: 1 },
+                    { name: 'title', weight: 1 },
+                ],
+                threshold: 0.35,
+                includeScore: true,
+                minMatchCharLength: 2,
+            });
+        });
+
+        var _editSelectedTutorCourse = null;
+
+        function _editEsc(s) {
+            var d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function _editCourseSearch(q, exclude) {
+            if (!_editCourseFuse) return [];
+            return _editCourseFuse.search(q).map(function(r) { return r.item; }).filter(function(c) {
+                return exclude.indexOf(c.course_id) < 0;
+            }).slice(0, 8);
+        }
+
+        async function _editLoadEnrollments(studentId) {
+            var el = document.getElementById('edit-user-enrollments');
+            try {
+                var res = await fetch('/admin/api/user/' + studentId + '/enrollments');
+                var courses = await res.json();
+                if (!courses.length) {
+                    el.innerHTML = '<div class="user-course-empty">No enrollments.</div>';
+                    return;
+                }
+                el.innerHTML = courses.map(function(c) {
+                    return '<div class="user-course-item" data-course-id="' + c.course_id + '">' +
+                        '<span class="user-course-code">' + _editEsc(c.department) + ' ' + _editEsc(c.identifier) + '</span>' +
+                        '<span class="user-course-title">' + _editEsc(c.title || '') + '</span>' +
+                        '<button type="button" class="user-course-remove edit-enroll-remove" data-id="' + c.course_id + '">\u2715</button>' +
+                    '</div>';
+                }).join('');
+                el.querySelectorAll('.edit-enroll-remove').forEach(function(btn) {
+                    btn.addEventListener('click', async function() {
+                        await fetch('/admin/api/user/' + studentId + '/enrollments/' + btn.dataset.id, { method: 'DELETE' });
+                        await _editLoadEnrollments(studentId);
+                    });
+                });
+            } catch(e) { el.innerHTML = '<div class="user-course-empty">Failed to load.</div>'; }
+        }
+
+        async function _editLoadTutors(studentId) {
+            var el = document.getElementById('edit-user-tutors');
+            try {
+                var res = await fetch('/admin/api/user/' + studentId + '/tutor_capabilities');
+                var caps = await res.json();
+                if (!caps.length) {
+                    el.innerHTML = '<div class="user-course-empty">No tutor capabilities.</div>';
+                    return;
+                }
+                el.innerHTML = caps.map(function(c) {
+                    var style = c.confidence >= 8 ? 'background:#dcfce7;color:#166534'
+                              : c.confidence >= 5 ? 'background:#fef9c3;color:#854d0e'
+                              : 'background:#fee2e2;color:#991b1b';
+                    return '<div class="user-course-item" data-course-id="' + c.course_id + '">' +
+                        '<span class="user-course-code">' + _editEsc(c.department) + ' ' + _editEsc(c.identifier) + '</span>' +
+                        '<span class="user-course-title">' + _editEsc(c.title || '') + '</span>' +
+                        '<span class="confidence-badge" style="' + style + '" title="Confidence: ' + c.confidence + '/10">' + c.confidence + '</span>' +
+                        '<button type="button" class="user-course-remove edit-tutor-remove" data-id="' + c.course_id + '">\u2715</button>' +
+                    '</div>';
+                }).join('');
+                el.querySelectorAll('.edit-tutor-remove').forEach(function(btn) {
+                    btn.addEventListener('click', async function() {
+                        await fetch('/admin/api/user/' + studentId + '/tutor_capabilities/' + btn.dataset.id, { method: 'DELETE' });
+                        await _editLoadTutors(studentId);
+                    });
+                });
+            } catch(e) { el.innerHTML = '<div class="user-course-empty">Failed to load.</div>'; }
+        }
+
+        // Enrollment search dropdown
+        (function() {
+            var input = document.getElementById('edit-enroll-search');
+            var dropdown = document.getElementById('edit-enroll-dropdown');
+            if (!input || !dropdown) return;
+
+            input.addEventListener('input', function() {
+                var q = input.value.trim();
+                if (q.length < 2) { dropdown.classList.add('hidden'); return; }
+                var enrolledEls = document.querySelectorAll('#edit-user-enrollments [data-course-id]');
+                var exclude = [];
+                enrolledEls.forEach(function(el) { exclude.push(parseInt(el.dataset.courseId, 10)); });
+                var matches = _editCourseSearch(q, exclude);
+                if (!matches.length) { dropdown.classList.add('hidden'); return; }
+                dropdown.innerHTML = matches.map(function(c) {
+                    return '<div class="course-search-item" data-id="' + c.course_id + '">' +
+                        '<strong>' + _editEsc(c.combined || c.department + c.identifier) + '</strong> ' +
+                        _editEsc(c.title || '') + '</div>';
+                }).join('');
+                dropdown.classList.remove('hidden');
+                dropdown.querySelectorAll('.course-search-item').forEach(function(el) {
+                    el.addEventListener('click', async function() {
+                        dropdown.classList.add('hidden');
+                        input.value = '';
+                        var sid = document.getElementById('edit-user-id').value;
+                        var form = new FormData();
+                        form.append('course_id', el.dataset.id);
+                        await fetch('/admin/api/user/' + sid + '/enrollments', { method: 'POST', body: form });
+                        await _editLoadEnrollments(sid);
+                    });
+                });
+            });
+            document.addEventListener('click', function(e) {
+                if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.classList.add('hidden');
+                }
+            });
+        })();
+
+        // Tutor search dropdown
+        (function() {
+            var input = document.getElementById('edit-tutor-search');
+            var dropdown = document.getElementById('edit-tutor-dropdown');
+            var addBtn = document.getElementById('edit-tutor-add-btn');
+            if (!input || !dropdown || !addBtn) return;
+
+            input.addEventListener('input', function() {
+                var q = input.value.trim();
+                _editSelectedTutorCourse = null;
+                addBtn.disabled = true;
+                if (q.length < 2) { dropdown.classList.add('hidden'); return; }
+                var tutorEls = document.querySelectorAll('#edit-user-tutors [data-course-id]');
+                var exclude = [];
+                tutorEls.forEach(function(el) { exclude.push(parseInt(el.dataset.courseId, 10)); });
+                var matches = _editCourseSearch(q, exclude);
+                if (!matches.length) { dropdown.classList.add('hidden'); return; }
+                dropdown.innerHTML = matches.map(function(c) {
+                    return '<div class="course-search-item" data-id="' + c.course_id + '">' +
+                        '<strong>' + _editEsc(c.combined || c.department + c.identifier) + '</strong> ' +
+                        _editEsc(c.title || '') + '</div>';
+                }).join('');
+                dropdown.classList.remove('hidden');
+                dropdown.querySelectorAll('.course-search-item').forEach(function(el) {
+                    el.addEventListener('click', function() {
+                        var id = parseInt(el.dataset.id, 10);
+                        _editSelectedTutorCourse = _editAllCourses.find(function(c) { return c.course_id === id; });
+                        input.value = _editSelectedTutorCourse ? (_editSelectedTutorCourse.combined || _editSelectedTutorCourse.department + _editSelectedTutorCourse.identifier) : '';
+                        dropdown.classList.add('hidden');
+                        addBtn.disabled = !_editSelectedTutorCourse;
+                    });
+                });
+            });
+            document.addEventListener('click', function(e) {
+                if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.classList.add('hidden');
+                }
+            });
+
+            addBtn.addEventListener('click', async function() {
+                if (!_editSelectedTutorCourse) return;
+                var sid = document.getElementById('edit-user-id').value;
+                var conf = parseInt(document.getElementById('edit-tutor-confidence').value, 10);
+                if (isNaN(conf) || conf < 1 || conf > 10) {
+                    document.getElementById('edit-tutor-confidence').focus();
+                    return;
+                }
+                addBtn.disabled = true;
+                var form = new FormData();
+                form.append('course_id', _editSelectedTutorCourse.course_id);
+                form.append('confidence', conf);
+                await fetch('/admin/api/user/' + sid + '/tutor_capabilities', { method: 'POST', body: form });
+                _editSelectedTutorCourse = null;
+                input.value = '';
+                await _editLoadTutors(sid);
+            });
+        })();
+
         window.openEditModal = function(btn) {
-            document.getElementById('edit-user-id').value = btn.dataset.studentId;
+            var studentId = btn.dataset.studentId;
+            document.getElementById('edit-user-id').value = studentId;
             document.getElementById('edit-first-name').value = btn.dataset.firstName;
             document.getElementById('edit-last-name').value = btn.dataset.lastName;
             document.getElementById('edit-discord-id').value = btn.dataset.discordId || '';
             document.getElementById('edit-user-error').classList.add('hidden');
+            document.getElementById('edit-enroll-search').value = '';
+            document.getElementById('edit-tutor-search').value = '';
+            _editSelectedTutorCourse = null;
+            document.getElementById('edit-tutor-add-btn').disabled = true;
             document.getElementById('edit-user-panel').classList.remove('hidden');
             document.getElementById('edit-user-backdrop').classList.remove('hidden');
-            refreshRowAvatar(btn.dataset.studentId, btn.dataset.discordId);
+            refreshRowAvatar(studentId, btn.dataset.discordId);
+            _editLoadEnrollments(studentId);
+            _editLoadTutors(studentId);
         };
 
         window.closeEditModal = function() {
@@ -1019,18 +1215,20 @@
                     container.innerHTML = items.map(function(a) {
                         var typeLabel = a.exam_type === 'quiz' ? 'Quiz' : a.exam_type === 'final' ? 'Final' : a.exam_type === 'common_hour' ? 'Common Hour' : 'In-Class Test';
                         if (a.review_type === 'needs_session') {
+                            var needsTypeCls = a.exam_type === 'quiz' ? 'assessment-type-quiz' : a.exam_type === 'final' ? 'assessment-type-final' : a.exam_type === 'common_hour' ? 'assessment-type-common' : 'assessment-type-test';
                             var alsoCovers = (a.also_covers && a.also_covers.length)
                                 ? ' <span style="color:#888;font-size:11px;">(+ ' + a.also_covers.join(', ') + ')</span>'
                                 : '';
                             return '<div class="backup-item">' +
                                 '<div class="backup-item-info">' +
                                     '<span class="backup-item-date">' +
-                                        '<span class="assessment-type-badge assessment-type-common">Needs Session</span> ' +
+                                        '<span class="assessment-type-badge ' + needsTypeCls + '">Needs Session</span> ' +
                                         a.department + ' ' + a.identifier + alsoCovers + ' \u2014 ' + typeLabel + '</span>' +
                                     '<span class="backup-item-count">Exam on ' + a.test_date + '</span>' +
                                 '</div>' +
                                 '<div class="backup-item-actions">' +
                                     '<button type="button" class="btn-action btn-elevate needs-session-btn" data-id="' + a.exam_id + '">Schedule</button>' +
+                                    '<button type="button" class="btn-action skip-exam-btn" data-id="' + a.exam_id + '">Skip</button>' +
                                 '</div>' +
                             '</div>';
                         }
@@ -1063,6 +1261,9 @@
                     container.querySelectorAll('.needs-session-btn').forEach(function(btn) {
                         btn.addEventListener('click', function() { openScheduleModal(parseInt(btn.dataset.id, 10)); });
                     });
+                    container.querySelectorAll('.skip-exam-btn').forEach(function(btn) {
+                        btn.addEventListener('click', function() { skipExam(parseInt(btn.dataset.id, 10), btn); });
+                    });
                     container.querySelectorAll('.pending-confirm-btn').forEach(function(btn) {
                         btn.addEventListener('click', function() { confirmAssessment(parseInt(btn.dataset.id, 10), btn); });
                     });
@@ -1071,6 +1272,20 @@
                     });
                 } catch (e) {
                     container.innerHTML = '<p style="color:#e74c3c;font-size:13px;">Failed to load pending reports.</p>';
+                }
+            }
+
+            async function skipExam(examId, btn) {
+                btn.disabled = true;
+                try {
+                    var form = new FormData();
+                    form.append('exam_id', examId);
+                    var res = await fetch('/admin/api/skip_exam', { method: 'POST', body: form });
+                    if (!res.ok) console.warn('Skip exam failed:', res.status);
+                    await loadPending();
+                    document.dispatchEvent(new CustomEvent('exams-changed'));
+                } catch (e) {
+                    btn.disabled = false;
                 }
             }
 
@@ -1110,12 +1325,26 @@
         // ===== Course Link Modal =====
         (function() {
             var allCourses = [];
+            var linkCourseFuse = null;
             var allLinks = [];
             var linkCountMap = {};
             var selectedNewCourse = null;
             var sourceCourseId = null;
 
-            fetch('/api/courses').then(function(r) { return r.json(); }).then(function(c) { allCourses = c; });
+            fetch('/api/courses').then(function(r) { return r.json(); }).then(function(c) {
+                allCourses = c;
+                linkCourseFuse = new Fuse(c, {
+                    keys: [
+                        { name: 'combined', weight: 2 },
+                        { name: 'identifier', weight: 1.5 },
+                        { name: 'department', weight: 1 },
+                        { name: 'title', weight: 1 },
+                    ],
+                    threshold: 0.35,
+                    includeScore: true,
+                    minMatchCharLength: 2,
+                });
+            });
 
             function escHtml(s) {
                 var d = document.createElement('div');
@@ -1240,12 +1469,10 @@
             var dropdown = document.getElementById('link-new-dropdown');
             if (input && dropdown) {
                 input.addEventListener('input', function() {
-                    var q = input.value.trim().toUpperCase();
-                    if (q.length < 2) { dropdown.classList.add('hidden'); return; }
-                    var matches = allCourses.filter(function(c) {
-                        return c.course_id !== sourceCourseId &&
-                            ((c.combined || '').toUpperCase().indexOf(q) >= 0 ||
-                             (c.title || '').toUpperCase().indexOf(q) >= 0);
+                    var q = input.value.trim();
+                    if (q.length < 2 || !linkCourseFuse) { dropdown.classList.add('hidden'); return; }
+                    var matches = linkCourseFuse.search(q).map(function(r) { return r.item; }).filter(function(c) {
+                        return c.course_id !== sourceCourseId;
                     }).slice(0, 8);
                     if (!matches.length) { dropdown.classList.add('hidden'); return; }
                     dropdown.innerHTML = matches.map(function(c) {
@@ -1299,11 +1526,14 @@
             loadAllLinks();
         })();
 
-        // ===== Restore Deleted Exams =====
+        // ===== Restore & Review (unified: deleted/skipped exams + no-tutor approved) =====
         (function() {
             var container = document.getElementById('restore-exams-container');
+            var filterBar = document.getElementById('restore-filter-bar');
             if (!container) return;
-            var allItems = [];
+            var allExamItems = [];
+            var allNoTutorItems = [];
+            var activeFilter = 'all';
 
             function examTypeBadge(type) {
                 if (type === 'final') return { cls: 'assessment-type-final', label: 'Final' };
@@ -1321,7 +1551,7 @@
                 items.forEach(function(a) {
                     var key = a.department + '|' + a.identifier + '|' + a.test_date + '|' + a.exam_type;
                     if (!map[key]) {
-                        map[key] = { ids: [], department: a.department, identifier: a.identifier, title: a.title, test_date: a.test_date, exam_type: a.exam_type };
+                        map[key] = { ids: [], department: a.department, identifier: a.identifier, title: a.title, test_date: a.test_date, exam_type: a.exam_type, is_skipped: a.is_skipped, is_deleted: a.is_deleted, is_disputed: a.is_disputed };
                         order.push(key);
                     }
                     map[key].ids.push(a.exam_id);
@@ -1329,67 +1559,166 @@
                 return order.map(function(k) { return map[k]; });
             }
 
-            function render(filter) {
-                var items = allItems;
-                if (filter) {
-                    var q = filter.toLowerCase();
-                    items = allItems.filter(function(a) {
+            function getFilterCounts() {
+                var counts = { all: 0, deleted: 0, skipped: 0, disputed: 0, no_tutor: allNoTutorItems.length };
+                allExamItems.forEach(function(a) {
+                    if (a.is_skipped) counts.skipped++;
+                    else if (a.is_disputed) counts.disputed++;
+                    else counts.deleted++;
+                });
+                counts.all = allExamItems.length + allNoTutorItems.length;
+                return counts;
+            }
+
+            function renderFilterBar() {
+                if (!filterBar) return;
+                var counts = getFilterCounts();
+                var filters = [
+                    { key: 'all', label: 'All' },
+                    { key: 'deleted', label: 'Deleted' },
+                    { key: 'skipped', label: 'Skipped' },
+                    { key: 'disputed', label: 'Disputed' },
+                    { key: 'no_tutor', label: 'No Tutor' }
+                ];
+                filterBar.innerHTML = filters.filter(function(f) {
+                    return f.key === 'all' || counts[f.key] > 0;
+                }).map(function(f) {
+                    return '<button type="button" class="restore-filter-chip' +
+                        (activeFilter === f.key ? ' active' : '') +
+                        '" data-filter="' + f.key + '">' +
+                        f.label + (counts[f.key] > 0 ? ' <span class="restore-filter-count">' + counts[f.key] + '</span>' : '') +
+                        '</button>';
+                }).join('');
+                filterBar.querySelectorAll('.restore-filter-chip').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        activeFilter = btn.dataset.filter;
+                        expanded = false;
+                        renderFilterBar();
+                        var searchEl = container.querySelector('#restore-exams-search');
+                        render(searchEl ? searchEl.value.trim() : '');
+                    });
+                });
+            }
+
+            function applyTypeFilter(examItems, noTutorItems) {
+                if (activeFilter === 'all') return { exams: examItems, noTutor: noTutorItems };
+                if (activeFilter === 'no_tutor') return { exams: [], noTutor: noTutorItems };
+                var filtered = examItems.filter(function(a) {
+                    if (activeFilter === 'deleted') return !a.is_skipped && !a.is_disputed;
+                    if (activeFilter === 'skipped') return a.is_skipped;
+                    if (activeFilter === 'disputed') return a.is_disputed;
+                    return true;
+                });
+                return { exams: filtered, noTutor: [] };
+            }
+
+            function render(search) {
+                var examItems = allExamItems;
+                var noTutorItems = allNoTutorItems;
+                if (search) {
+                    var q = search.toLowerCase();
+                    examItems = examItems.filter(function(a) {
                         return (a.department + ' ' + a.identifier).toLowerCase().indexOf(q) >= 0
                             || (a.title || '').toLowerCase().indexOf(q) >= 0;
                     });
+                    noTutorItems = noTutorItems.filter(function(c) {
+                        return (c.department + ' ' + c.identifier).toLowerCase().indexOf(q) >= 0
+                            || (c.title || '').toLowerCase().indexOf(q) >= 0;
+                    });
                 }
-                var merged = dedup(items);
+                var filtered = applyTypeFilter(examItems, noTutorItems);
+                var merged = dedup(filtered.exams);
+                var totalCount = merged.length + filtered.noTutor.length;
                 var searchHtml = '<div class="course-search-input-wrap" style="margin-bottom:10px;">' +
-                    '<input type="text" id="restore-exams-search" placeholder="Search exams\u2026" autocomplete="off" value="' + (filter || '') + '">' +
+                    '<input type="text" id="restore-exams-search" placeholder="Search\u2026" autocomplete="off" value="' + (search || '') + '">' +
                     '</div>';
 
-                if (!allItems.length) {
-                    container.innerHTML = '<p style="color:#888;font-size:13px;">No deleted exams to restore.</p>';
+                if (!allExamItems.length && !allNoTutorItems.length) {
+                    container.innerHTML = '<p style="color:#888;font-size:13px;">Nothing to review.</p>';
                     return;
                 }
-                if (!merged.length) {
+                if (!totalCount) {
                     container.innerHTML = searchHtml + '<p style="color:#888;font-size:13px;">No matches.</p>';
                     container.querySelector('#restore-exams-search').addEventListener('input', function() { render(this.value.trim()); });
                     return;
                 }
-                var visible = (!expanded && !filter && merged.length > COLLAPSED_LIMIT) ? merged.slice(0, COLLAPSED_LIMIT) : merged;
-                var hiddenCount = merged.length - visible.length;
-                container.innerHTML = searchHtml + visible.map(function(a) {
+                // Build combined list of HTML rows
+                var rows = [];
+                // No-tutor items first
+                filtered.noTutor.forEach(function(c) {
+                    rows.push('<div class="backup-item">' +
+                        '<div class="backup-item-info"><span class="backup-item-date">' +
+                            '<span class="assessment-type-badge assessment-type-quiz">No Tutor</span> ' +
+                            c.department + ' ' + c.identifier + (c.title ? ' \u2014 ' + c.title : '') +
+                        '</span></div>' +
+                        '<div class="backup-item-actions">' +
+                            '<button type="button" class="btn-action btn-elevate no-tutor-revoke-btn" data-id="' + c.course_id + '">Revoke</button>' +
+                        '</div></div>');
+                });
+                // Exam items
+                var visibleExams = (!expanded && !search && merged.length > COLLAPSED_LIMIT) ? merged.slice(0, COLLAPSED_LIMIT) : merged;
+                var hiddenCount = merged.length - visibleExams.length;
+                visibleExams.forEach(function(a) {
                     var badge = examTypeBadge(a.exam_type);
-                    return '<div class="backup-item">' +
+                    var statusBadge = a.is_skipped ? '<span class="badge badge-skipped">Skipped</span> '
+                        : a.is_disputed ? '<span class="assessment-type-badge assessment-type-final">Disputed</span> ' : '';
+                    var actionBtn = a.is_skipped
+                        ? '<button type="button" class="btn-action btn-elevate unskip-exam-btn" data-ids="' + a.ids.join(',') + '">Unskip</button>'
+                        : '<button type="button" class="btn-action btn-elevate restore-exam-btn" data-ids="' + a.ids.join(',') + '">Restore</button>';
+                    rows.push('<div class="backup-item">' +
                         '<div class="backup-item-info">' +
                             '<span class="backup-item-date">' +
                                 '<span class="assessment-type-badge ' + badge.cls + '">' + badge.label + '</span> ' +
+                                statusBadge +
                                 a.department + ' ' + a.identifier + (a.title ? ' \u2014 ' + a.title : '') +
                             '</span>' +
                             '<span class="backup-item-count">' + a.test_date + '</span>' +
                         '</div>' +
-                        '<div class="backup-item-actions">' +
-                            '<button type="button" class="btn-action btn-elevate restore-exam-btn" data-ids="' + a.ids.join(',') + '">Restore</button>' +
-                        '</div>' +
-                    '</div>';
-                }).join('') +
-                (hiddenCount > 0 ? '<button type="button" id="restore-show-all" class="btn-action" style="margin-top:8px;">Show all (' + merged.length + ')</button>' : '') +
-                (expanded && !filter && merged.length > COLLAPSED_LIMIT ? '<button type="button" id="restore-show-less" class="btn-action" style="margin-top:8px;">Show less</button>' : '');
+                        '<div class="backup-item-actions">' + actionBtn + '</div>' +
+                    '</div>');
+                });
+                container.innerHTML = searchHtml + rows.join('') +
+                    (hiddenCount > 0 ? '<button type="button" id="restore-show-all" class="btn-action" style="margin-top:8px;">Show all (' + merged.length + ')</button>' : '') +
+                    (expanded && !search && merged.length > COLLAPSED_LIMIT ? '<button type="button" id="restore-show-less" class="btn-action" style="margin-top:8px;">Show less</button>' : '');
                 container.querySelector('#restore-exams-search').addEventListener('input', function() { render(this.value.trim()); });
                 container.querySelectorAll('.restore-exam-btn').forEach(function(btn) {
                     btn.addEventListener('click', function() { restoreExam(btn.dataset.ids.split(',').map(Number), btn); });
                 });
+                container.querySelectorAll('.unskip-exam-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() { unskipExam(btn.dataset.ids.split(',').map(Number), btn); });
+                });
+                container.querySelectorAll('.no-tutor-revoke-btn').forEach(function(btn) {
+                    btn.addEventListener('click', async function() {
+                        btn.disabled = true;
+                        try {
+                            var form = new FormData();
+                            form.append('course_id', btn.dataset.id);
+                            var res = await fetch('/admin/api/toggle_no_tutor', { method: 'POST', body: form });
+                            if (!res.ok) throw new Error('Failed');
+                            await loadAll();
+                            document.dispatchEvent(new CustomEvent('no-tutor-changed'));
+                        } catch(e) { btn.disabled = false; }
+                    });
+                });
                 var showAllBtn = container.querySelector('#restore-show-all');
-                if (showAllBtn) showAllBtn.addEventListener('click', function() { expanded = true; render(filter); });
+                if (showAllBtn) showAllBtn.addEventListener('click', function() { expanded = true; render(search); });
                 var showLessBtn = container.querySelector('#restore-show-less');
-                if (showLessBtn) showLessBtn.addEventListener('click', function() { expanded = false; render(filter); });
+                if (showLessBtn) showLessBtn.addEventListener('click', function() { expanded = false; render(search); });
             }
 
-            async function loadDeleted() {
+            async function loadAll() {
                 try {
-                    var res = await fetch('/admin/api/deleted_exams');
-                    if (!res.ok) throw new Error('Server error');
-                    allItems = await res.json();
+                    var results = await Promise.all([
+                        fetch('/admin/api/deleted_exams').then(function(r) { return r.ok ? r.json() : []; }),
+                        fetch('/admin/api/no_tutor_approved').then(function(r) { return r.ok ? r.json() : []; })
+                    ]);
+                    allExamItems = results[0];
+                    allNoTutorItems = results[1];
+                    renderFilterBar();
                     var searchEl = container.querySelector('#restore-exams-search');
                     render(searchEl ? searchEl.value.trim() : '');
                 } catch (e) {
-                    container.innerHTML = '<p style="color:#e74c3c;font-size:13px;">Failed to load deleted exams.</p>';
+                    container.innerHTML = '<p style="color:#e74c3c;font-size:13px;">Failed to load review items.</p>';
                 }
             }
 
@@ -1402,15 +1731,97 @@
                         var res = await fetch('/admin/api/restore_exam', { method: 'POST', body: form });
                         if (!res.ok) console.warn('Restore exam failed:', res.status);
                     }
-                    await loadDeleted();
+                    await loadAll();
                     document.dispatchEvent(new CustomEvent('exams-changed'));
                 } catch (e) {
                     btn.disabled = false;
                 }
             }
 
-            loadDeleted();
-            document.addEventListener('exams-changed', loadDeleted);
+            async function unskipExam(examIds, btn) {
+                btn.disabled = true;
+                try {
+                    for (var i = 0; i < examIds.length; i++) {
+                        var form = new FormData();
+                        form.append('exam_id', examIds[i]);
+                        var res = await fetch('/admin/api/unskip_exam', { method: 'POST', body: form });
+                        if (!res.ok) console.warn('Unskip exam failed:', res.status);
+                    }
+                    await loadAll();
+                    document.dispatchEvent(new CustomEvent('exams-changed'));
+                } catch (e) {
+                    btn.disabled = false;
+                }
+            }
+
+            loadAll();
+            document.addEventListener('exams-changed', loadAll);
+            document.addEventListener('no-tutor-changed', loadAll);
+        })();
+
+        // ===== No-Tutor-Needed Pending Reports =====
+        (function() {
+            var container = document.getElementById('no-tutor-pending-container');
+            if (!container) return;
+
+            function render(items) {
+                if (!items.length) {
+                    container.innerHTML = '';
+                    return;
+                }
+                container.innerHTML =
+                    '<div style="margin-bottom:14px;">' +
+                    '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin-bottom:8px;">No-Tutor Reports</div>' +
+                    items.map(function(c) {
+                        return '<div class="backup-item" data-course-id="' + c.course_id + '">' +
+                            '<div class="backup-item-info">' +
+                                '<span class="backup-item-date">' +
+                                    '<span class="assessment-pending-badge">Pending</span> ' +
+                                    c.department + ' ' + c.identifier + (c.title ? ' \u2014 ' + c.title : '') +
+                                '</span>' +
+                            '</div>' +
+                            '<div class="backup-item-actions" style="display:flex;gap:6px;">' +
+                                '<button type="button" class="btn-action btn-elevate no-tutor-approve-btn" data-id="' + c.course_id + '">Approve</button>' +
+                                '<button type="button" class="btn-action no-tutor-dismiss-btn" data-id="' + c.course_id + '">Dismiss</button>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('') +
+                    '</div>';
+
+                container.querySelectorAll('.no-tutor-approve-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() { handleAction(btn, '/admin/api/approve_no_tutor'); });
+                });
+                container.querySelectorAll('.no-tutor-dismiss-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() { handleAction(btn, '/admin/api/reject_no_tutor'); });
+                });
+            }
+
+            async function handleAction(btn, url) {
+                btn.disabled = true;
+                try {
+                    var form = new FormData();
+                    form.append('course_id', btn.dataset.id);
+                    var res = await fetch(url, { method: 'POST', body: form });
+                    if (!res.ok) throw new Error('Failed');
+                    loadPending();
+                    document.dispatchEvent(new CustomEvent('no-tutor-changed'));
+                } catch(e) {
+                    btn.disabled = false;
+                }
+            }
+
+            async function loadPending() {
+                try {
+                    var res = await fetch('/admin/api/no_tutor_pending');
+                    if (!res.ok) throw new Error('Server error');
+                    render(await res.json());
+                } catch(e) {
+                    container.innerHTML = '';
+                }
+            }
+
+            loadPending();
+            document.addEventListener('no-tutor-changed', loadPending);
         })();
 
         // ===== Study Session Scheduling Modal =====
@@ -1429,6 +1840,7 @@
                 submitBtn.style.display = '';
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Schedule';
+                document.getElementById('schedule-session-id').value = '';
                 document.getElementById('schedule-location').value = 'Study Room';
                 document.getElementById('schedule-exam-id').value = examId;
                 document.getElementById('schedule-exam-info').innerHTML = '<span style="color:#888;font-size:13px;">Loading\u2026</span>';
@@ -1523,6 +1935,33 @@
                 _scheduleData = null;
             };
 
+            window.openEditSessionModal = async function(session) {
+                await openScheduleModal(session.exam_id);
+                document.getElementById('schedule-session-id').value = session.session_id;
+                document.getElementById('schedule-submit-btn').textContent = 'Save';
+                document.querySelector('.wipe-panel-title', document.getElementById('schedule-session-panel'));
+                // Pre-fill tutor
+                if (session.tutor_id) {
+                    document.getElementById('schedule-tutor-select').value = session.tutor_id;
+                }
+                // Pre-fill datetime
+                if (session.session_timestamp) {
+                    var dt = new Date(session.session_timestamp);
+                    var dtLocal = dt.getFullYear() + '-' +
+                        String(dt.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(dt.getDate()).padStart(2, '0') + 'T' +
+                        String(dt.getHours()).padStart(2, '0') + ':' +
+                        String(dt.getMinutes()).padStart(2, '0');
+                    document.getElementById('schedule-datetime').value = dtLocal;
+                }
+                // Pre-fill location
+                if (session.location) {
+                    document.getElementById('schedule-location').value = session.location;
+                }
+                // Hide "session already exists" warning for edits
+                document.getElementById('schedule-error').classList.add('hidden');
+            };
+
             function buildPingText(exam, tutorName, datetime, location, students) {
                 var dtObj = new Date(datetime);
                 var dateStr = dtObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -1563,22 +2002,30 @@
                     return;
                 }
 
+                var sessionId = document.getElementById('schedule-session-id').value;
+                var isEdit = !!sessionId;
+
                 submitBtn.disabled = true;
-                submitBtn.textContent = 'Scheduling\u2026';
+                submitBtn.textContent = isEdit ? 'Saving\u2026' : 'Scheduling\u2026';
                 errorEl.classList.add('hidden');
 
                 try {
                     var form = new FormData();
-                    form.append('exam_id', examId);
                     if (tutorId) form.append('tutor_student_id', tutorId);
                     form.append('session_timestamp', datetime);
                     form.append('location', location);
 
-                    var res = await fetch('/admin/api/study_sessions', { method: 'POST', body: form });
+                    var res;
+                    if (isEdit) {
+                        res = await fetch('/admin/api/study_sessions/' + sessionId, { method: 'PUT', body: form });
+                    } else {
+                        form.append('exam_id', examId);
+                        res = await fetch('/admin/api/study_sessions', { method: 'POST', body: form });
+                    }
                     var data = await res.json();
 
                     if (!res.ok) {
-                        throw new Error(data.detail || 'Failed to create session');
+                        throw new Error(data.detail || (isEdit ? 'Failed to update session' : 'Failed to create session'));
                     }
 
                     var exam = _scheduleData.exam;
@@ -1602,7 +2049,7 @@
                     errorEl.textContent = err.message;
                     errorEl.classList.remove('hidden');
                     submitBtn.disabled = false;
-                    submitBtn.textContent = 'Schedule';
+                    submitBtn.textContent = isEdit ? 'Save' : 'Schedule';
                 }
             });
 
@@ -1695,12 +2142,23 @@
                                 '</span>' +
                             '</div>' +
                             '<div class="backup-item-actions">' +
+                                '<button type="button" class="btn-action session-edit-btn" data-sid="' + s.session_id + '">Edit</button>' +
                                 '<button type="button" class="btn-action btn-edit session-copy-btn" data-sid="' + s.session_id + '">Copy Ping</button>' +
                                 '<button type="button" class="btn-action btn-delete session-delete-btn" data-sid="' + s.session_id + '">Delete</button>' +
                             '</div>' +
                         '</div>';
                     }).join('');
 
+                    container.querySelectorAll('.session-edit-btn').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            var sid = parseInt(btn.dataset.sid, 10);
+                            var session = null;
+                            for (var i = 0; i < sessionsList.length; i++) {
+                                if (sessionsList[i].session_id === sid) { session = sessionsList[i]; break; }
+                            }
+                            if (session) openEditSessionModal(session);
+                        });
+                    });
                     container.querySelectorAll('.session-copy-btn').forEach(function(btn) {
                         btn.addEventListener('click', function() {
                             var sid = parseInt(btn.dataset.sid, 10);

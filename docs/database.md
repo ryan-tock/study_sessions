@@ -24,6 +24,7 @@ Schema is defined in `init.sql`. Reset with `reset.sh`.
 | `sharing` | `sharing_setting` | Default `open` |
 | `graduated_date` | `DATE` | NULL = undergraduate |
 | `avatar_checked_at` | `TIMESTAMPTZ` | Last avatar refresh |
+| `dark_mode` | `BOOLEAN` | Default FALSE |
 
 ### student_auth
 | Column | Type | Notes |
@@ -33,6 +34,7 @@ Schema is defined in `init.sql`. Reset with `reset.sh`.
 | `is_admin` | `BOOLEAN` | Default FALSE |
 | `is_root` | `BOOLEAN` | Default FALSE |
 | `last_login` | `TIMESTAMPTZ` | NULL until first login |
+| `last_seen_term` | `academic_term` | Last term the admin dismissed the checklist |
 
 ### courses
 | Column | Type | Notes |
@@ -43,6 +45,8 @@ Schema is defined in `init.sql`. Reset with `reset.sh`.
 | `title` | `TEXT` | |
 | `semester_hours` | `TEXT` | |
 | `last_offered` | `academic_term` | Most recent term offered |
+| `no_tutor_needed` | `BOOLEAN` | Default FALSE, non-academic course that doesn't need tutors |
+| `no_tutor_pending` | `BOOLEAN` | Default FALSE, student-reported pending approval |
 
 ### course_links
 | Column | Type | Notes |
@@ -63,6 +67,7 @@ Schema is defined in `init.sql`. Reset with `reset.sh`.
 | `confirmed` | `BOOLEAN` | Default TRUE |
 | `disputed` | `BOOLEAN` | Default FALSE |
 | `deleted` | `BOOLEAN` | Default FALSE |
+| `skipped` | `BOOLEAN` | Default FALSE, exam doesn't need a session |
 | | | UNIQUE on `(course_id, test_date, exam_type)` WHERE NOT deleted |
 
 ### enrollments
@@ -78,7 +83,7 @@ Schema is defined in `init.sql`. Reset with `reset.sh`.
 |---|---|---|
 | `student_id` | `INTEGER` | FK students |
 | `course_id` | `INTEGER` | FK courses |
-| `confidence` | `SMALLINT` | 1-10 (0 = dismissed) |
+| `confidence` | `SMALLINT` | 1-10 (0 = dismissed), CHECK 0-10 |
 | `sharing` | `sharing_setting` | Default `open` |
 | | | PK on `(student_id, course_id)` |
 
@@ -99,6 +104,13 @@ Schema is defined in `init.sql`. Reset with `reset.sh`.
 | `token_hash` | `TEXT` | bcrypt hash |
 | `expires_at` | `TIMESTAMPTZ` | |
 | `created_at` | `TIMESTAMPTZ` | Default NOW() |
+
+### confidence_decay_log
+| Column | Type | Notes |
+|---|---|---|
+| `academic_year` | `SMALLINT` | PK (part) |
+| `season` | `term_season` | PK (part) |
+| | | Tracks which terms have had graduate confidence decay applied |
 
 ## Functions
 

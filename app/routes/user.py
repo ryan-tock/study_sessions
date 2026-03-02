@@ -165,6 +165,22 @@ async def post_privacy(
     )
 
 
+# ── Appearance ──
+
+@api_router.post("/api/my/dark_mode")
+async def toggle_dark_mode(user: dict = Depends(require_auth)):
+    """Toggle the user's dark mode preference."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE students SET dark_mode = NOT dark_mode WHERE student_id = %s RETURNING dark_mode",
+                (user["student_id"],)
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return {"ok": True, "dark_mode": row[0] if row else False}
+
+
 # ── Enrollment APIs ──
 
 @api_router.get("/api/my/enrollments")
@@ -256,11 +272,13 @@ async def get_my_tutor_recommendations(user: dict = Depends(require_auth)):
                 JOIN courses c ON e.course_id = c.course_id
                 CROSS JOIN current_term ct
                 WHERE e.student_id = %s
+                  AND NOT c.no_tutor_needed
                   AND NOT ((e.term).academic_year = ct.academic_year
                        AND (e.term).season = ct.season)
                   AND NOT EXISTS (
                     SELECT 1 FROM tutors t
-                    WHERE t.student_id = %s AND t.course_id = c.course_id
+                    WHERE t.student_id = %s
+                      AND t.course_id = ANY(linked_course_ids_any(c.course_id))
                   )
                 ORDER BY c.department, c.identifier
             """, (user["student_id"], user["student_id"]))
@@ -315,6 +333,19 @@ async def remove_my_tutor_capability(course_id: int, user: dict = Depends(requir
             cur.execute(
                 "DELETE FROM tutors WHERE student_id = %s AND course_id = %s",
                 (user["student_id"], course_id)
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@api_router.post("/api/my/report_no_tutor/{course_id}")
+async def report_no_tutor_needed(course_id: int, user: dict = Depends(require_auth)):
+    """Student reports that a course doesn't need a tutor (pending admin approval)."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE courses SET no_tutor_pending = TRUE WHERE course_id = %s AND NOT no_tutor_needed",
+                (course_id,)
             )
         conn.commit()
     return {"ok": True}
@@ -454,37 +485,83 @@ async def dispute_assessment(exam_id: int, user: dict = Depends(require_auth)):
 
 @api_router.get("/api/my/course_tutors")
 async def get_my_course_tutors(user: dict = Depends(require_auth)):
-    """Get visible tutors for the user's enrolled courses (respects RLS sharing)."""
+    """Get visible tutors for the user's enrolled courses (respects RLS sharing).
+
+    Includes tutors from linked courses:
+    - Strong links: tutor shown once (same test, courses are interchangeable)
+    - Weak links: tutor shown with from_course annotation
+    """
     with get_db_for_user(user) as conn:
         with conn.cursor() as cur:
+            # Get enrolled course IDs
             cur.execute("""
-                SELECT c.course_id, c.department, c.identifier, c.title,
-                       s.first_name, s.last_name, t.confidence
+                SELECT en.course_id
                 FROM enrollments en
-                JOIN courses c ON en.course_id = c.course_id
-                JOIN tutors t ON t.course_id = c.course_id
-                JOIN students s ON t.student_id = s.student_id
                 CROSS JOIN current_term ct
                 WHERE en.student_id = %s
                   AND (en.term).academic_year = ct.academic_year
                   AND (en.term).season = ct.season
-                  AND t.confidence > 0
-                  AND t.student_id != %s
-                ORDER BY c.department, c.identifier, t.confidence DESC
-            """, (user["student_id"], user["student_id"]))
-            rows = cur.fetchall()
-    courses: dict[int, dict] = {}
-    for r in rows:
-        cid = r[0]
-        if cid not in courses:
-            courses[cid] = {
-                "course_id": r[0], "department": r[1],
-                "identifier": r[2], "title": r[3], "tutors": [],
-            }
-        courses[cid]["tutors"].append({
-            "first_name": r[4], "last_name": r[5], "confidence": r[6],
-        })
-    return list(courses.values())
+            """, (user["student_id"],))
+            enrolled_ids = [r[0] for r in cur.fetchall()]
+
+            if not enrolled_ids:
+                return []
+
+            # For each enrolled course, get linked courses and their link types
+            results = {}
+            for eid in enrolled_ids:
+                cur.execute("SELECT linked_course_ids_any(%s)", (eid,))
+                all_linked = cur.fetchone()[0] or [eid]
+                cur.execute("SELECT linked_course_ids(%s)", (eid,))
+                strong_linked = cur.fetchone()[0] or [eid]
+                weak_linked = [cid for cid in all_linked if cid not in strong_linked]
+
+                # Fetch tutors from all linked courses
+                cur.execute("""
+                    SELECT t.student_id, s.first_name, s.last_name, t.confidence,
+                           t.course_id, c.department, c.identifier
+                    FROM tutors t
+                    JOIN students s ON t.student_id = s.student_id
+                    JOIN courses c ON t.course_id = c.course_id
+                    WHERE t.course_id = ANY(%s)
+                      AND t.confidence > 0
+                      AND t.student_id != %s
+                    ORDER BY t.confidence DESC
+                """, (all_linked, user["student_id"]))
+                tutor_rows = cur.fetchall()
+
+                # Get enrolled course info
+                cur.execute("""
+                    SELECT c.course_id, c.department, c.identifier, c.title
+                    FROM courses c WHERE c.course_id = %s
+                """, (eid,))
+                course_info = cur.fetchone()
+                if not course_info:
+                    continue
+
+                # Deduplicate: same tutor across strong links = show once
+                seen_tutors = set()
+                tutors = []
+                for tr in tutor_rows:
+                    sid = tr[0]
+                    if sid in seen_tutors:
+                        continue
+                    seen_tutors.add(sid)
+                    tutor_entry = {
+                        "first_name": tr[1], "last_name": tr[2], "confidence": tr[3],
+                    }
+                    # Annotate if tutor is from a weakly-linked course
+                    if tr[4] in weak_linked:
+                        tutor_entry["from_course"] = f"{tr[5]}{tr[6]}"
+                    tutors.append(tutor_entry)
+
+                results[eid] = {
+                    "course_id": course_info[0], "department": course_info[1],
+                    "identifier": course_info[2], "title": course_info[3],
+                    "tutors": tutors,
+                }
+
+    return list(results.values())
 
 
 @api_router.get("/api/my/study_sessions")
@@ -530,3 +607,87 @@ async def get_my_study_sessions(user: dict = Depends(require_auth)):
         }
         for r in rows
     ]
+
+
+# ── Classmates ──
+
+@api_router.get("/api/my/classmates")
+async def get_my_classmates(user: dict = Depends(require_auth)):
+    """Get students sharing classes with the current user (respects RLS sharing)."""
+    with get_db_for_user(user) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (s.student_id)
+                       s.student_id, s.first_name, s.last_name, s.discord_id
+                FROM enrollments en
+                JOIN enrollments other_en ON en.course_id = other_en.course_id
+                    AND (en.term).academic_year = (other_en.term).academic_year
+                    AND (en.term).season = (other_en.term).season
+                JOIN students s ON other_en.student_id = s.student_id
+                CROSS JOIN current_term ct
+                WHERE en.student_id = %s
+                  AND other_en.student_id != %s
+                  AND (en.term).academic_year = ct.academic_year
+                  AND (en.term).season = ct.season
+                ORDER BY s.student_id, s.last_name, s.first_name
+            """, (user["student_id"], user["student_id"]))
+            classmate_rows = cur.fetchall()
+
+            # Get courses for each classmate (only ones visible via RLS)
+            classmates = []
+            for r in classmate_rows:
+                cur.execute("""
+                    SELECT c.course_id, c.department, c.identifier
+                    FROM enrollments e
+                    JOIN courses c ON e.course_id = c.course_id
+                    CROSS JOIN current_term ct
+                    WHERE e.student_id = %s
+                      AND (e.term).academic_year = ct.academic_year
+                      AND (e.term).season = ct.season
+                    ORDER BY c.department, c.identifier
+                """, (r[0],))
+                courses = [{"course_id": cr[0], "department": cr[1], "identifier": cr[2]} for cr in cur.fetchall()]
+                classmates.append({
+                    "student_id": r[0], "first_name": r[1], "last_name": r[2],
+                    "discord_id": r[3], "courses": courses,
+                })
+    return classmates
+
+
+@api_router.get("/api/my/search_students")
+async def search_students(q: str = "", user: dict = Depends(require_auth)):
+    """Search for students by name (respects RLS sharing for enrollment visibility)."""
+    if len(q) < 2:
+        return []
+    with get_db_for_user(user) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT s.student_id, s.first_name, s.last_name, s.discord_id
+                FROM students s
+                JOIN student_auth sa ON s.student_id = sa.student_id
+                WHERE CONCAT(s.first_name, ' ', s.last_name) ILIKE %s
+                  AND s.student_id != %s
+                  AND NOT sa.is_root
+                ORDER BY s.last_name, s.first_name
+                LIMIT 20
+            """, (f"%{q}%", user["student_id"]))
+            student_rows = cur.fetchall()
+
+            results = []
+            for r in student_rows:
+                cur.execute("""
+                    SELECT c.course_id, c.department, c.identifier
+                    FROM enrollments e
+                    JOIN courses c ON e.course_id = c.course_id
+                    CROSS JOIN current_term ct
+                    WHERE e.student_id = %s
+                      AND (e.term).academic_year = ct.academic_year
+                      AND (e.term).season = ct.season
+                    ORDER BY c.department, c.identifier
+                """, (r[0],))
+                courses = [{"course_id": cr[0], "department": cr[1], "identifier": cr[2]} for cr in cur.fetchall()]
+                results.append({
+                    "student_id": r[0], "first_name": r[1], "last_name": r[2],
+                    "discord_id": r[3], "courses": courses,
+                })
+    return results

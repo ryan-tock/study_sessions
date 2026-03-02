@@ -4,7 +4,6 @@ __pycache__
 package-lock.json
 enrollments.json
 node_modules
-.envrc
 avatars
 users.json
 .env
@@ -15,3 +14,5 @@ CLAUDE.md
 deploy
 reset_remote_db.sh
 deploy.sh
+todo.txt
+BENCHMARK_RESULTS.md

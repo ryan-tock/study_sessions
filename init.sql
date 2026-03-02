@@ -12,6 +12,7 @@ DROP TABLE IF EXISTS tutors CASCADE;
 DROP TABLE IF EXISTS study_sessions CASCADE;
 DROP TABLE IF EXISTS student_auth;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
+DROP TABLE IF EXISTS confidence_decay_log CASCADE;
 
 DROP FUNCTION IF EXISTS linked_course_ids(INTEGER);
 DROP FUNCTION IF EXISTS linked_course_ids_any(INTEGER);
@@ -49,6 +50,8 @@ CREATE TABLE courses (
     title TEXT,
     semester_hours TEXT,
     last_offered academic_term NOT NULL,
+    no_tutor_needed BOOLEAN NOT NULL DEFAULT FALSE,
+    no_tutor_pending BOOLEAN NOT NULL DEFAULT FALSE,
 
     CONSTRAINT last_offered_year_not_null CHECK ((last_offered).academic_year IS NOT NULL),
     CONSTRAINT last_offered_season_not_null CHECK ((last_offered).season IS NOT NULL)
@@ -111,7 +114,8 @@ CREATE TABLE students (
     last_name TEXT,
     sharing sharing_setting NOT NULL DEFAULT 'open',
     graduated_date DATE,  -- Null for undergraduate
-    avatar_checked_at TIMESTAMPTZ
+    avatar_checked_at TIMESTAMPTZ,
+    dark_mode BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
@@ -134,6 +138,7 @@ CREATE TABLE exams (
     confirmed BOOLEAN NOT NULL DEFAULT TRUE,
     disputed BOOLEAN NOT NULL DEFAULT FALSE,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    skipped BOOLEAN NOT NULL DEFAULT FALSE,
 
     CONSTRAINT fk_exams_course
         FOREIGN KEY(course_id)
@@ -220,6 +225,8 @@ CREATE TABLE tutors (
     confidence SMALLINT,
     sharing sharing_setting NOT NULL DEFAULT 'open',
 
+    CONSTRAINT confidence_range CHECK (confidence >= 0 AND confidence <= 10),
+
     PRIMARY KEY (student_id, course_id),
 
     CONSTRAINT fk_course
@@ -284,7 +291,8 @@ CREATE TABLE student_auth (
     hashed_password TEXT NOT NULL,
     is_admin BOOLEAN NOT NULL DEFAULT FALSE,
     is_root BOOLEAN NOT NULL DEFAULT FALSE,
-    last_login TIMESTAMPTZ
+    last_login TIMESTAMPTZ,
+    last_seen_term academic_term
 );
 
 CREATE TABLE refresh_tokens (
@@ -329,6 +337,12 @@ SELECT
              ELSE 'fall'::term_season
         END
     ) AS season;
+
+CREATE TABLE confidence_decay_log (
+    academic_year SMALLINT NOT NULL,
+    season term_season NOT NULL,
+    PRIMARY KEY (academic_year, season)
+);
 
 CREATE INDEX course_department ON courses (department);
 CREATE INDEX exam_dates ON exams (test_date);

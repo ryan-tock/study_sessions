@@ -135,6 +135,18 @@ def backup() -> str:
             """)
             link_rows = cur.fetchall()
 
+            # Study sessions (term-specific, resolved via exam dates)
+            cur.execute("""
+                SELECT c.department, c.identifier, e.test_date, e.exam_type,
+                       ts.discord_id, ss.session_timestamp, ss.location
+                FROM study_sessions ss
+                JOIN exams e ON ss.exam_id = e.exam_id
+                JOIN courses c ON e.course_id = c.course_id
+                LEFT JOIN students ts ON ss.tutor_student_id = ts.student_id
+                ORDER BY ss.session_timestamp
+            """)
+            session_rows = cur.fetchall()
+
     # ── Static users ──────────────────────────────────────────────────────────
     users = [
         {
@@ -191,6 +203,20 @@ def backup() -> str:
             'semester_hours': sem_hours,
         })
 
+    sessions_by_term: dict[tuple, list] = {}
+    for r in session_rows:
+        test_date = r[2]
+        key = (test_date.year, _exam_season(test_date.month))
+        sessions_by_term.setdefault(key, []).append({
+            'exam_department': r[0],
+            'exam_identifier': r[1],
+            'exam_date': test_date.isoformat(),
+            'exam_type': r[3],
+            'tutor_discord_id': r[4],
+            'session_timestamp': r[5].isoformat() if r[5] else None,
+            'location': r[6],
+        })
+
     # ── Current term snapshot (in backup dir + mirrored to term dir) ──────────
     if ct_year:
         ct_letter = SEASON_LETTER[ct_season]
@@ -212,24 +238,26 @@ def backup() -> str:
             by_student[key]['courses'].append({'department': dept, 'identifier': ident})
         enr_data = list(by_student.values())
 
-        # Exams and courses for current term only
+        # Exams, courses, and sessions for current term only
         ct_exams = exams_by_term.get((ct_year, ct_season), [])
         ct_courses = courses_by_term.get((ct_year, ct_season), [])
+        ct_sessions = sessions_by_term.get((ct_year, ct_season), [])
 
         for fname, data in [('enrollments.json', enr_data),
                              ('exams.json', ct_exams),
-                             ('courses.json', ct_courses)]:
+                             ('courses.json', ct_courses),
+                             ('sessions.json', ct_sessions)]:
             with open(os.path.join(ct_backup_subdir, fname), 'w') as f:
                 json.dump(data, f, indent=2)
 
         # Mirror to data/{ct_name}/ so old-term restore logic stays consistent
         ct_data_dir = os.path.join(DATA_DIR, ct_name)
         os.makedirs(ct_data_dir, exist_ok=True)
-        for fname in ['enrollments.json', 'exams.json', 'courses.json']:
+        for fname in ['enrollments.json', 'exams.json', 'courses.json', 'sessions.json']:
             shutil.copy(os.path.join(ct_backup_subdir, fname),
                         os.path.join(ct_data_dir, fname))
 
-    # ── Write all terms' exams and courses to their term dirs ─────────────────
+    # ── Write all terms' exams, courses, and sessions to their term dirs ─────
     for (y, s), exams in exams_by_term.items():
         d = _term_dir(y, s)
         os.makedirs(d, exist_ok=True)
@@ -241,6 +269,12 @@ def backup() -> str:
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, 'courses.json'), 'w') as f:
             json.dump(courses, f, indent=2)
+
+    for (y, s), sessions in sessions_by_term.items():
+        d = _term_dir(y, s)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'sessions.json'), 'w') as f:
+            json.dump(sessions, f, indent=2)
 
     return name
 
@@ -637,6 +671,53 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                             pass
         conn.commit()
 
+    # ── 5b. Restore study sessions ───────────────────────────────────────────
+    # Current term: use backup's sessions.json. All other terms: use term dirs.
+    with get_db_for_user(user) as conn:
+        with conn.cursor() as cur:
+            for d in all_dirs:
+                term_name = os.path.basename(d)
+                if term_name == bt_name and bt_subdir:
+                    sessions_file = os.path.join(bt_subdir, 'sessions.json')
+                else:
+                    sessions_file = os.path.join(d, 'sessions.json')
+                if not os.path.exists(sessions_file):
+                    continue
+                with open(sessions_file) as f:
+                    sessions = json.load(f)
+                for s in sessions:
+                    # Look up the exam by (dept, ident, date, type)
+                    cur.execute(
+                        """SELECT e.exam_id FROM exams e
+                           JOIN courses c ON e.course_id = c.course_id
+                           WHERE c.department ILIKE %s AND c.identifier = %s
+                             AND e.test_date = %s::date AND e.exam_type = %s::exam_type
+                           LIMIT 1""",
+                        (s['exam_department'], s['exam_identifier'],
+                         s['exam_date'], s['exam_type'])
+                    )
+                    exam_row = cur.fetchone()
+                    if not exam_row:
+                        continue
+                    # Look up the tutor by discord_id (if present)
+                    tutor_id = None
+                    if s.get('tutor_discord_id'):
+                        cur.execute(
+                            "SELECT student_id FROM students WHERE discord_id = %s LIMIT 1",
+                            (s['tutor_discord_id'],)
+                        )
+                        tutor_row = cur.fetchone()
+                        if tutor_row:
+                            tutor_id = tutor_row[0]
+                    cur.execute(
+                        """INSERT INTO study_sessions (exam_id, tutor_student_id, session_timestamp, location)
+                           VALUES (%s, %s, %s::timestamptz, %s)""",
+                        (exam_row[0], tutor_id, s['session_timestamp'], s.get('location', 'Study Room'))
+                    )
+                    if cur.rowcount:
+                        found_data = True
+        conn.commit()
+
     # ── 6. Restore course links ──────────────────────────────────────────────
     links_file = None
     if users_file:
@@ -675,7 +756,7 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
     if bt_subdir and bt_name:
         ct_data_dir = os.path.join(DATA_DIR, bt_name)
         os.makedirs(ct_data_dir, exist_ok=True)
-        for fname in ['enrollments.json', 'exams.json', 'courses.json']:
+        for fname in ['enrollments.json', 'exams.json', 'courses.json', 'sessions.json']:
             src = os.path.join(bt_subdir, fname)
             if os.path.exists(src):
                 shutil.copy(src, os.path.join(ct_data_dir, fname))

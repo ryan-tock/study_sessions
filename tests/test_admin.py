@@ -130,6 +130,115 @@ class TestEditUser:
         assert resp.status_code == 403
 
 
+class TestAdminUserEnrollments:
+    def test_get_user_enrollments(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._fetchall_results = [
+                [(10, "CSCI", "101", "Intro to CS")]
+            ]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.get("/admin/api/user/2/enrollments", cookies=ADMIN)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["course_id"] == 10
+
+    def test_add_user_enrollment(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [(2026, "spring")]  # current_term
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.post("/admin/api/user/2/enrollments",
+                               data={"course_id": 10}, cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    def test_add_enrollment_no_term(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [None]  # no current term
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.post("/admin/api/user/2/enrollments",
+                               data={"course_id": 10}, cookies=ADMIN)
+        assert resp.status_code == 400
+
+    def test_remove_user_enrollment(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [(2026, "spring")]  # current_term
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.delete("/admin/api/user/2/enrollments/10", cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    def test_unauthenticated_blocked(self, client):
+        resp = client.get("/admin/api/user/2/enrollments")
+        assert resp.status_code in (302, 403)
+
+
+class TestAdminUserTutorCapabilities:
+    def test_get_user_tutor_capabilities(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._fetchall_results = [
+                [(10, "CSCI", "101", "Intro to CS", 8)]
+            ]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.get("/admin/api/user/2/tutor_capabilities", cookies=ADMIN)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["confidence"] == 8
+
+    def test_add_user_tutor_capability(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.post("/admin/api/user/2/tutor_capabilities",
+                               data={"course_id": 10, "confidence": 7}, cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    def test_add_tutor_invalid_confidence(self, client):
+        resp = client.post("/admin/api/user/2/tutor_capabilities",
+                           data={"course_id": 10, "confidence": 15}, cookies=ADMIN)
+        assert resp.status_code == 400
+
+    def test_remove_user_tutor_capability(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.delete("/admin/api/user/2/tutor_capabilities/10", cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    def test_unauthenticated_blocked(self, client):
+        resp = client.get("/admin/api/user/2/tutor_capabilities")
+        assert resp.status_code in (302, 403)
+
+
 class TestDeleteUser:
     def test_delete_user_success(self, client):
         with patch("app.routes.admin.get_db_for_user") as mock_db, \
@@ -440,9 +549,9 @@ class TestRestoreExams:
             conn = FakeConnection()
             # fetchone: current_term query
             conn._cursor._results = [(2026, "spring")]
-            # fetchall: deleted exams SELECT
+            # fetchall: deleted exams SELECT (9 columns: id, dept, ident, title, date, type, deleted, skipped, disputed)
             conn._cursor._fetchall_results = [
-                [(1, "CSCI", "101", "Intro to CS", date(2026, 3, 15), "final")]
+                [(1, "CSCI", "101", "Intro to CS", date(2026, 3, 15), "final", True, False, False)]
             ]
             @contextmanager
             def db():
@@ -473,6 +582,91 @@ class TestRestoreExams:
         resp = client.post("/admin/api/restore_exam",
                            data={"exam_id": "42"},
                            cookies=auth_cookies(is_admin=False))
+        assert resp.status_code == 403
+
+
+class TestNoTutorReview:
+    """Tests for no-tutor-needed report review."""
+
+    def test_get_no_tutor_pending(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._fetchall_results = [
+                [(10, "PHGN", "100", "Physics 1")]
+            ]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.get("/admin/api/no_tutor_pending", cookies=ADMIN)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["department"] == "PHGN"
+        assert data[0]["course_id"] == 10
+
+    def test_get_no_tutor_pending_empty(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._fetchall_results = [[]]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.get("/admin/api/no_tutor_pending", cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_approve_no_tutor(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.post("/admin/api/approve_no_tutor",
+                               data={"course_id": "10"}, cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        sql = conn._cursor._executed[-1][0]
+        assert "no_tutor_needed = TRUE" in sql
+        assert "no_tutor_pending = FALSE" in sql
+
+    def test_reject_no_tutor(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.post("/admin/api/reject_no_tutor",
+                               data={"course_id": "10"}, cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        sql = conn._cursor._executed[-1][0]
+        assert "no_tutor_pending = FALSE" in sql
+        assert "no_tutor_needed" not in sql or "no_tutor_needed = TRUE" not in sql
+
+    def test_toggle_no_tutor(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.post("/admin/api/toggle_no_tutor",
+                               data={"course_id": "10"}, cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        sql = conn._cursor._executed[-1][0]
+        assert "NOT no_tutor_needed" in sql
+
+    def test_no_tutor_non_admin_blocked(self, client):
+        user = auth_cookies(is_admin=False)
+        resp = client.get("/admin/api/no_tutor_pending", cookies=user)
+        assert resp.status_code == 403
+        resp = client.post("/admin/api/approve_no_tutor",
+                           data={"course_id": "10"}, cookies=user)
         assert resp.status_code == 403
 
 
@@ -663,10 +857,116 @@ class TestStudySessions:
         sql = conn._cursor._executed[-1][0]
         assert "DELETE FROM study_sessions" in sql
 
+    def test_update_study_session(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [
+                (10,),   # session exists, exam_id=10
+                (True,),  # tutor valid
+            ]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.put("/admin/api/study_sessions/1", data={
+                "tutor_student_id": "5",
+                "session_timestamp": "2026-03-04T16:00",
+                "location": "Library"
+            }, cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        sql = conn._cursor._executed[-1][0]
+        assert "UPDATE study_sessions" in sql
+
+    def test_update_study_session_not_found(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [None]  # session not found
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.put("/admin/api/study_sessions/999", data={
+                "session_timestamp": "2026-03-04T16:00",
+            }, cookies=ADMIN)
+        assert resp.status_code == 404
+
+    def test_update_study_session_invalid_tutor(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [
+                (10,),   # session exists
+                None,    # tutor NOT valid
+            ]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.put("/admin/api/study_sessions/1", data={
+                "tutor_student_id": "99",
+                "session_timestamp": "2026-03-04T16:00",
+            }, cookies=ADMIN)
+        assert resp.status_code == 400
+
     def test_study_session_non_admin_blocked(self, client):
         resp = client.get("/admin/api/study_sessions",
                           cookies=auth_cookies(is_admin=False))
         assert resp.status_code == 403
+
+
+class TestNoTutorApproved:
+    def test_get_no_tutor_approved(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._fetchall_results = [
+                [(1, "MATH", "111", "Calculus I")]
+            ]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.get("/admin/api/no_tutor_approved", cookies=ADMIN)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["department"] == "MATH"
+        assert data[0]["course_id"] == 1
+
+    def test_get_no_tutor_approved_empty(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._fetchall_results = [[]]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.get("/admin/api/no_tutor_approved", cookies=ADMIN)
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_no_tutor_approved_non_admin_blocked(self, client):
+        resp = client.get("/admin/api/no_tutor_approved",
+                          cookies=auth_cookies(is_admin=False))
+        assert resp.status_code == 403
+
+    def test_deleted_exams_include_disputed(self, client):
+        from datetime import date
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [(2026, "spring")]
+            conn._cursor._fetchall_results = [
+                [(1, "MATH", "201", "Calc 2", date(2026, 4, 10), "final", True, False, True)]
+            ]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.get("/admin/api/deleted_exams", cookies=ADMIN)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["is_disputed"] is True
+        assert data[0]["is_deleted"] is True
 
 
 class TestCourseLinks:

@@ -43,7 +43,7 @@
 | `GET` | `/api/my/tutor_capabilities` | Tutor capabilities (confidence > 0) |
 | `POST` | `/api/my/tutor_capabilities` | Form: `course_id`, `confidence` (1-10) |
 | `DELETE` | `/api/my/tutor_capabilities/{course_id}` | Remove capability |
-| `GET` | `/api/my/tutor_recommendations` | Past courses not yet in tutors table |
+| `GET` | `/api/my/tutor_recommendations` | Past courses not yet in tutors table (excludes linked courses) |
 | `POST` | `/api/my/tutor_dismiss/{course_id}` | Dismiss recommendation (confidence=0) |
 
 ### Assessments
@@ -55,12 +55,31 @@
 | `DELETE` | `/api/my/assessments/{exam_id}` | Delete own unconfirmed assessment |
 | `POST` | `/api/my/assessments/{exam_id}/dispute` | Dispute a final exam |
 
+### No-Tutor Reports
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/my/report_no_tutor/{course_id}` | Report non-academic course that doesn't need a tutor (pending admin approval) |
+
+### Dark Mode
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/my/dark_mode` | Toggle dark mode preference (returns `{dark_mode: bool}`) |
+
 ### Course Tutors & Study Sessions
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/my/course_tutors` | Tutors for enrolled courses, grouped by course (respects RLS sharing) |
 | `GET` | `/api/my/study_sessions` | Upcoming study sessions (enrolled courses + sessions where user is tutor) |
+
+### Classmates
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/my/classmates` | Students sharing classes (respects RLS sharing) |
+| `GET` | `/api/my/search_students?q=` | Search all students by name (respects RLS for course visibility) |
 
 ## Admin
 
@@ -75,6 +94,18 @@
 | `POST` | `/admin/set_graduated` | Form: `target_id`, `graduated` |
 | `GET` | `/admin/api/validate_discord/{id}` | Validate Discord ID via bot API |
 | `POST` | `/admin/create_user` | Form: `first_name`, `last_name`, `discord_id` |
+| `POST` | `/admin/api/dismiss_checklist` | Dismiss new-semester checklist for current term |
+
+### Admin User Enrollments & Tutors
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/admin/api/user/{id}/enrollments` | User's current-term enrollments |
+| `POST` | `/admin/api/user/{id}/enrollments` | Form: `course_id` -- add enrollment |
+| `DELETE` | `/admin/api/user/{id}/enrollments/{course_id}` | Remove enrollment (current term) |
+| `GET` | `/admin/api/user/{id}/tutor_capabilities` | User's tutor capabilities |
+| `POST` | `/admin/api/user/{id}/tutor_capabilities` | Form: `course_id`, `confidence` -- add/update |
+| `DELETE` | `/admin/api/user/{id}/tutor_capabilities/{course_id}` | Remove capability |
 
 ### Assessment Review
 
@@ -91,8 +122,10 @@
 |---|---|---|
 | `GET` | `/admin/api/calendar_exams` | All exams with enrolled students |
 | `DELETE` | `/admin/api/exam/{exam_id}` | Soft-delete any exam |
-| `GET` | `/admin/api/deleted_exams` | Current-term deleted exams |
+| `GET` | `/admin/api/deleted_exams` | Current-term deleted and skipped exams |
 | `POST` | `/admin/api/restore_exam` | Form: `exam_id` -- restore deleted exam |
+| `POST` | `/admin/api/skip_exam` | Form: `exam_id` -- skip exam (no session needed) |
+| `POST` | `/admin/api/unskip_exam` | Form: `exam_id` -- unskip exam |
 
 ### Study Sessions
 
@@ -100,7 +133,8 @@
 |---|---|---|
 | `GET` | `/admin/api/exam/{exam_id}/scheduling_details` | Tutors, students, linked courses for scheduling |
 | `POST` | `/admin/api/study_sessions` | Form: `exam_id`, `tutor_student_id` (optional), `session_timestamp`, `location` |
-| `GET` | `/admin/api/study_sessions` | All current-term sessions with student lists |
+| `GET` | `/admin/api/study_sessions` | Future sessions for the current term (past sessions filtered out) |
+| `PUT` | `/admin/api/study_sessions/{session_id}` | Form: `tutor_student_id` (optional), `session_timestamp`, `location` -- update session |
 | `DELETE` | `/admin/api/study_sessions/{session_id}` | Delete session |
 
 ### Course Links
@@ -111,6 +145,16 @@
 | `POST` | `/admin/api/course_links` | Form: `course_id_a`, `course_id_b`, `link_type` (`strong` or `weak`) |
 | `DELETE` | `/admin/api/course_links/{course_id_a}/{course_id_b}` | Remove link |
 | `GET` | `/admin/api/course_link_suggestions` | Title-similarity-based link suggestions |
+
+### No-Tutor-Needed Management
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/admin/api/no_tutor_pending` | Courses pending no-tutor approval (shown in Todos) |
+| `POST` | `/admin/api/approve_no_tutor` | Form: `course_id` -- approve (sets `no_tutor_needed`) |
+| `POST` | `/admin/api/reject_no_tutor` | Form: `course_id` -- reject (clears `no_tutor_pending`) |
+| `POST` | `/admin/api/toggle_no_tutor` | Form: `course_id` -- toggle `no_tutor_needed` directly |
+| `GET` | `/admin/api/no_tutor_approved` | Current-term courses with `no_tutor_needed` approved (shown in Restore & Review) |
 
 ### Import
 

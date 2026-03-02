@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Study Sessions</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/user.css">
+    <link rel="stylesheet" href="/static/css/dark.css">
     <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
 </head>
-<body>
+<body{% if user_profile.dark_mode %} class="dark"{% endif %}>
     <div class="portal-container">
         <nav class="navbar">
             <h1>User Portal</h1>
@@ -34,6 +36,7 @@
                         <a href="/user/change_password">Change Password</a>
                         <a href="/user/privacy">Privacy Settings</a>
                         {% endif %}
+                        <a href="#" id="dark-mode-toggle" onclick="toggleDarkMode(event)">{{ 'Light Mode' if user_profile.dark_mode else 'Dark Mode' }}</a>
                     </div>
                 </div>
             </div>
@@ -107,6 +110,15 @@
                     </div>
                     <div id="tutor-list" class="user-course-list tutor-list"></div>
                 </div>
+            </div>
+
+            <!-- Classmates -->
+            <div class="user-section" id="classmates-section">
+                <h2>Classmates</h2>
+                <div class="course-search-input-wrap">
+                    <input type="text" id="classmate-search-input" placeholder="Search for a student…" autocomplete="off">
+                </div>
+                <div id="classmates-list" class="classmates-list"></div>
             </div>
         </div>
     </div>
