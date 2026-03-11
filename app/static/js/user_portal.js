@@ -1,3 +1,13 @@
+var _uDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+var _uMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function formatDate(d) {
+    if (typeof d === 'string') {
+        var parts = d.split('-');
+        d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    }
+    return _uDays[d.getDay()] + ', ' + _uMonths[d.getMonth()] + ' ' + d.getDate();
+}
+
 window.toggleAvatarMenu = function() {
     document.getElementById('avatar-menu').classList.toggle('hidden');
 };
@@ -100,12 +110,14 @@ function escHtml(str) {
                 } else {
                     noTutorBtn = '<button type="button" class="no-tutor-report-btn" data-id="' + c.course_id + '" title="Report that this course doesn\'t need a tutor">No tutor needed</button>';
                 }
+                var removeBtn = document.body.dataset.role === 'graduated' ? '' :
+                    `<button type="button" class="user-course-remove" data-id="${c.course_id}">✕</button>`;
                 return `
                 <div class="user-course-item" data-course-id="${c.course_id}">
                     <span class="user-course-code">${escHtml(c.department)} ${escHtml(c.identifier)}</span>
                     <span class="user-course-title">${escHtml(c.title || '')}</span>
                     ${noTutorBtn}
-                    <button type="button" class="user-course-remove" data-id="${c.course_id}">✕</button>
+                    ${removeBtn}
                 </div>`;
             }).join('');
             listEl.querySelectorAll('.user-course-remove').forEach(btn => {
@@ -516,8 +528,6 @@ function escHtml(str) {
         tomorrow.setDate(tomorrow.getDate() + 1);
         dateInput.value = tomorrow.toISOString().slice(0, 10);
 
-        var _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
         function updateReportBtn() {
             reportBtn.disabled = !courseSelect.value || !dateInput.value;
         }
@@ -554,9 +564,8 @@ function escHtml(str) {
             listEl.innerHTML = assessments.map(function(a) {
                 var dateHeader = '';
                 if (a.test_date !== lastDate) {
-                    var parts = a.test_date.split('-');
                     dateHeader = '<div class="assessment-date-header">' +
-                        _months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10) + ', ' + parts[0] +
+                        formatDate(a.test_date) +
                         '</div>';
                     lastDate = a.test_date;
                 }
@@ -666,8 +675,6 @@ function escHtml(str) {
         var listEl = document.getElementById('study-sessions-list');
         if (!listEl) return;
 
-        var _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
         async function loadSessions() {
             try {
                 var res = await fetch('/api/my/study_sessions');
@@ -684,7 +691,7 @@ function escHtml(str) {
                         s.exam_type === 'common_hour' ? 'assessment-type-common' :
                         s.exam_type === 'quiz' ? 'assessment-type-quiz' : 'assessment-type-test';
                     var dt = new Date(s.session_timestamp);
-                    var dateStr = _months[dt.getMonth()] + ' ' + dt.getDate();
+                    var dateStr = formatDate(dt);
                     var hours = dt.getHours();
                     var ampm = hours >= 12 ? 'PM' : 'AM';
                     hours = hours % 12 || 12;

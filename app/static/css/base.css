@@ -493,14 +493,29 @@ button:hover {
     color: #721c24;
 }
 
+.badge-bca {
+    background-color: #d1e7dd;
+    color: #0a3622;
+}
+
 .badge-admin {
     background-color: #fff3cd;
     color: #856404;
 }
 
+.badge-coordinator {
+    background-color: #cfe2ff;
+    color: #084298;
+}
+
 .badge-user {
     background-color: #e2e3e5;
     color: #383d41;
+}
+
+.badge-graduated {
+    background-color: #e8f5e9;
+    color: #1b5e20;
 }
 
 .badge-no-auth {

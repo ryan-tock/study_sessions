@@ -133,7 +133,7 @@
 |---|---|---|
 | `GET` | `/admin/api/exam/{exam_id}/scheduling_details` | Tutors, students, linked courses for scheduling |
 | `POST` | `/admin/api/study_sessions` | Form: `exam_id`, `tutor_student_id` (optional), `session_timestamp`, `location` |
-| `GET` | `/admin/api/study_sessions` | Future sessions for the current term (past sessions filtered out) |
+| `GET` | `/admin/api/study_sessions` | Future sessions for the current term (past sessions filtered out); includes `tutor_discord_id` |
 | `PUT` | `/admin/api/study_sessions/{session_id}` | Form: `tutor_student_id` (optional), `session_timestamp`, `location` -- update session |
 | `DELETE` | `/admin/api/study_sessions/{session_id}` | Delete session |
 

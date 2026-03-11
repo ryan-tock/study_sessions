@@ -116,10 +116,14 @@ SECRET = os.environ["SECRET_KEY"]
 ALGO = os.environ["ALGORITHM"]
 
 
-def make_access_token(student_id=1, is_admin=False, is_root=False, is_first_login=False, expires_minutes=30):
+_ADMIN_ROLES = {'study_session_coordinator', 'scholarship_chair', 'bca_scholarship'}
+
+def make_access_token(student_id=1, is_admin=False, is_root=False, is_first_login=False, role=None, expires_minutes=30):
+    effective_is_admin = is_admin or (role in _ADMIN_ROLES) or is_root
     payload = {
         "sub": str(student_id),
-        "is_admin": is_admin,
+        "role": role,
+        "is_admin": effective_is_admin,
         "is_root": is_root,
         "is_first_login": is_first_login,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=expires_minutes),
@@ -127,9 +131,9 @@ def make_access_token(student_id=1, is_admin=False, is_root=False, is_first_logi
     return jwt.encode(payload, SECRET, algorithm=ALGO)
 
 
-def auth_cookies(student_id=1, is_admin=False, is_root=False, is_first_login=False):
+def auth_cookies(student_id=1, is_admin=False, is_root=False, is_first_login=False, role=None):
     """Return a dict of cookies that simulate a logged-in user."""
-    token = make_access_token(student_id, is_admin, is_root, is_first_login)
+    token = make_access_token(student_id, is_admin, is_root, is_first_login, role)
     return {"access_token": f"Bearer {token}"}
 
 

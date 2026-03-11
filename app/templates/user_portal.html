@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/dark.css">
     <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
 </head>
-<body{% if user_profile.dark_mode %} class="dark"{% endif %}>
+<body{% if user_profile.dark_mode %} class="dark"{% endif %} data-role="{{ user.role or '' }}">
     <div class="portal-container">
         <nav class="navbar">
             <h1>User Portal</h1>
@@ -79,10 +79,12 @@
                 <!-- My Classes -->
                 <div class="user-section" id="my-classes-section">
                     <h2>My Classes</h2>
+                    {% if user.role != 'graduated' %}
                     <div class="course-search-input-wrap">
                         <input type="text" id="enroll-search-input" placeholder="Add a class…" autocomplete="off">
                     </div>
                     <div id="enroll-search-results" class="course-search-results hidden"></div>
+                    {% endif %}
                     <div id="enrolled-list" class="user-course-list"></div>
                 </div>
 
@@ -113,6 +115,7 @@
             </div>
 
             <!-- Classmates -->
+            {% if user.role != 'graduated' %}
             <div class="user-section" id="classmates-section">
                 <h2>Classmates</h2>
                 <div class="course-search-input-wrap">
@@ -120,6 +123,7 @@
                 </div>
                 <div id="classmates-list" class="classmates-list"></div>
             </div>
+            {% endif %}
         </div>
     </div>
 

@@ -15,7 +15,8 @@ from ..config import DISCORD_BOT_TOKEN, USER_PASSWORD
 from ..database import get_db, get_db_for_user
 from ..dependencies import require_admin
 from ..helpers import (
-    AVATAR_DIR, DATA_DIR, get_user_profile, templates, validate_name,
+    ADMIN_ROLES, ASSIGNABLE_ROLES, AVATAR_DIR, DATA_DIR, ROLE_DISPLAY,
+    ROLE_HIERARCHY, get_user_profile, role_level, templates, validate_name,
 )
 from ..course_scraper import cache_exists as course_cache_exists
 from .discord import download_and_cache_avatar, validate_discord_id
@@ -59,14 +60,29 @@ async def admin_portal(request: Request, user: dict = Depends(require_admin), me
     with get_db_for_user(user) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT s.student_id, s.first_name, s.last_name, sa.is_admin, sa.is_root, s.graduated_date, s.discord_id
+                """SELECT s.student_id, s.first_name, s.last_name, sa.role, sa.is_root, s.discord_id
                    FROM students s
                    LEFT JOIN student_auth sa ON s.student_id = sa.student_id
-                   ORDER BY sa.is_root DESC NULLS LAST, sa.is_admin DESC NULLS LAST,
-                            (s.graduated_date IS NOT NULL), s.last_name, s.first_name"""
+                   ORDER BY sa.is_root DESC NULLS LAST,
+                            CASE sa.role
+                                WHEN 'bca_scholarship' THEN 1
+                                WHEN 'scholarship_chair' THEN 2
+                                WHEN 'study_session_coordinator' THEN 3
+                                WHEN 'user' THEN 4
+                                WHEN 'graduated' THEN 5
+                                ELSE 6
+                            END,
+                            s.last_name, s.first_name"""
             )
             users = [
-                {"student_id": r[0], "first_name": r[1], "last_name": r[2], "is_admin": r[3], "is_root": r[4], "graduated_date": r[5], "discord_id": r[6]}
+                {
+                    "student_id": r[0], "first_name": r[1], "last_name": r[2],
+                    "role": r[3], "is_root": bool(r[4]) if r[4] is not None else False,
+                    "has_login": r[4] is not None,
+                    "is_admin": r[3] in ADMIN_ROLES or bool(r[4]),
+                    "role_level": role_level('root' if r[4] else r[3]),
+                    "discord_id": r[5],
+                }
                 for r in cur.fetchall()
             ]
     current_term = None
@@ -93,17 +109,17 @@ async def admin_portal(request: Request, user: dict = Depends(require_admin), me
                         # Decrease confidence by 1 for all graduated tutors
                         cur_decay.execute("""
                             UPDATE tutors SET confidence = confidence - 1
-                            FROM students s
-                            WHERE tutors.student_id = s.student_id
-                              AND s.graduated_date IS NOT NULL
+                            FROM student_auth sa
+                            WHERE tutors.student_id = sa.student_id
+                              AND sa.role = 'graduated'
                               AND tutors.confidence > 0
                         """)
                         # Remove tutors where confidence hit 0
                         cur_decay.execute("""
                             DELETE FROM tutors
-                            USING students s
-                            WHERE tutors.student_id = s.student_id
-                              AND s.graduated_date IS NOT NULL
+                            USING student_auth sa
+                            WHERE tutors.student_id = sa.student_id
+                              AND sa.role = 'graduated'
                               AND tutors.confidence <= 0
                         """)
                         # Mark this term as processed
@@ -192,6 +208,13 @@ async def admin_portal(request: Request, user: dict = Depends(require_admin), me
         except Exception:
             pass
 
+    # Build role options from hierarchy order, excluding root (managed via is_root)
+    role_options = [
+        {"value": v, "label": ROLE_DISPLAY[v], "level": role_level(v)}
+        for v in ROLE_HIERARCHY
+        if v != 'root'
+    ]
+    actor_level = role_level('root' if user.get("is_root") else user.get("role"))
     return templates.TemplateResponse(request, "admin_portal.html", {
         "user": user,
         "user_profile": get_user_profile(user["student_id"]),
@@ -201,6 +224,9 @@ async def admin_portal(request: Request, user: dict = Depends(require_admin), me
         "current_term_status": ct_status,
         "wipe_terms": _list_wipeble_terms(),
         "show_checklist": show_checklist,
+        "current_user_role_level": actor_level,
+        "current_user_role": 'root' if user.get("is_root") else user.get("role"),
+        "role_options": role_options,
     })
 
 
@@ -220,27 +246,53 @@ async def dismiss_checklist(user: dict = Depends(require_admin)):
     return {"ok": True}
 
 
-@router.post("/admin/set_admin", response_class=HTMLResponse)
-async def set_admin(
-    _: dict = Depends(require_admin),
+@router.post("/admin/set_role", response_class=HTMLResponse)
+async def set_role(
+    user: dict = Depends(require_admin),
     target_id: int = Form(...),
-    make_admin: bool = Form(...)
+    role: str = Form(default=""),
 ):
-    """Elevate or de-elevate a user's admin status. Root users cannot be modified."""
+    """Change a user's role. Cannot assign a role higher than your own or modify higher-privileged users."""
+    new_role = role if role else None
+    actor_level = role_level('root' if user.get("is_root") else user.get("role"))
+
+    if new_role not in ASSIGNABLE_ROLES:
+        raise HTTPException(status_code=400, detail="Invalid role")
+
+    if role_level(new_role) > actor_level:
+        return RedirectResponse(
+            url="/admin/portal?message=Cannot+assign+a+role+higher+than+your+own",
+            status_code=302,
+        )
+
+    # Study session coordinators cannot promote others to coordinator
+    actor_role = 'root' if user.get("is_root") else user.get("role")
+    if actor_role == 'study_session_coordinator' and new_role == 'study_session_coordinator':
+        return RedirectResponse(
+            url="/admin/portal?message=Coordinators+cannot+assign+coordinator+role",
+            status_code=302,
+        )
+
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT is_root FROM student_auth WHERE student_id = %s", (target_id,))
+            cur.execute("SELECT is_root, role FROM student_auth WHERE student_id = %s", (target_id,))
             result = cur.fetchone()
             if not result:
                 raise HTTPException(status_code=404, detail="User not found")
-            if result[0]:
+            is_root, target_role = result
+            if is_root:
                 return RedirectResponse(
                     url="/admin/portal?message=Cannot+modify+root+user+privileges",
-                    status_code=302
+                    status_code=302,
+                )
+            if role_level(target_role) > actor_level:
+                return RedirectResponse(
+                    url="/admin/portal?message=Cannot+modify+a+user+with+a+higher+role",
+                    status_code=302,
                 )
             cur.execute(
-                "UPDATE student_auth SET is_admin = %s WHERE student_id = %s",
-                (make_admin, target_id)
+                "UPDATE student_auth SET role = %s WHERE student_id = %s",
+                (new_role, target_id)
             )
             cur.execute("DELETE FROM refresh_tokens WHERE student_id = %s", (target_id,))
         conn.commit()
@@ -436,26 +488,6 @@ async def delete_user(
     return RedirectResponse(url="/admin/portal", status_code=302)
 
 
-@router.post("/admin/set_graduated", response_class=HTMLResponse)
-async def set_graduated(
-    user: dict = Depends(require_admin),
-    target_id: int = Form(...),
-    graduated: bool = Form(...)
-):
-    """Set or clear a student's graduated_date. Root users cannot be modified."""
-    with get_db_for_user(user) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT is_root FROM student_auth WHERE student_id = %s", (target_id,))
-            result = cur.fetchone()
-            if result and result[0]:
-                return RedirectResponse(url="/admin/portal?message=Cannot+modify+root+user", status_code=302)
-            if graduated:
-                cur.execute("UPDATE students SET graduated_date = CURRENT_DATE WHERE student_id = %s", (target_id,))
-            else:
-                cur.execute("UPDATE students SET graduated_date = NULL WHERE student_id = %s", (target_id,))
-        conn.commit()
-    return RedirectResponse(url="/admin/portal", status_code=302)
-
 
 # ── Discord Validation & User Creation ──
 
@@ -521,7 +553,7 @@ async def create_user(
             )
             student_id = cur.fetchone()[0]
             cur.execute(
-                "INSERT INTO student_auth (student_id, hashed_password) VALUES (%s, %s)",
+                "INSERT INTO student_auth (student_id, hashed_password, role) VALUES (%s, %s, 'user')",
                 (student_id, get_password_hash(USER_PASSWORD))
             )
         conn.commit()
@@ -826,7 +858,7 @@ async def get_exam_scheduling_details(exam_id: int, _: dict = Depends(require_ad
             # Tutors from all linked courses (strong + weak)
             cur.execute("""
                 SELECT t.student_id, s.first_name, s.last_name, t.confidence,
-                       c.department, c.identifier
+                       c.department, c.identifier, s.discord_id
                 FROM tutors t
                 JOIN students s ON t.student_id = s.student_id
                 JOIN courses c ON t.course_id = c.course_id
@@ -838,6 +870,7 @@ async def get_exam_scheduling_details(exam_id: int, _: dict = Depends(require_ad
                     "student_id": r[0], "first_name": r[1], "last_name": r[2],
                     "confidence": r[3],
                     "from_course": f"{r[4]}{r[5]}" if (r[4] != exam_dept or r[5] != exam_ident) else None,
+                    "discord_id": r[6],
                 }
                 for r in cur.fetchall()
             ]
@@ -885,6 +918,7 @@ async def get_exam_scheduling_details(exam_id: int, _: dict = Depends(require_ad
             "department": exam_row[4], "identifier": exam_row[5], "title": exam_row[6],
         },
         "has_session": existing_session is not None,
+        "existing_session_id": existing_session[0] if existing_session else None,
         "tutors": tutors,
         "students": students,
         "linked_courses": linked_courses,
@@ -950,13 +984,13 @@ async def list_study_sessions(_: dict = Depends(require_admin)):
                 SELECT ss.session_id, ss.session_timestamp, ss.location,
                        e.exam_id, e.test_date, e.exam_type, e.course_id,
                        c.department, c.identifier, c.title,
-                       ts.first_name, ts.last_name, ts.student_id
+                       ts.first_name, ts.last_name, ts.student_id, ts.discord_id
                 FROM study_sessions ss
                 JOIN exams e ON ss.exam_id = e.exam_id
                 JOIN courses c ON e.course_id = c.course_id
                 LEFT JOIN students ts ON ss.tutor_student_id = ts.student_id
                 WHERE NOT e.deleted AND {date_filter}
-                  AND ss.session_timestamp > NOW()
+                  AND ss.session_timestamp >= CURRENT_DATE
                 ORDER BY ss.session_timestamp, c.department, c.identifier
             """, (year,))
             session_rows = cur.fetchall()
@@ -985,7 +1019,7 @@ async def list_study_sessions(_: dict = Depends(require_admin)):
                     "exam_id": r[3], "test_date": str(r[4]), "exam_type": r[5],
                     "course_id": r[6],
                     "department": r[7], "identifier": r[8], "title": r[9],
-                    "tutor_first": r[10], "tutor_last": r[11], "tutor_id": r[12],
+                    "tutor_first": r[10], "tutor_last": r[11], "tutor_id": r[12], "tutor_discord_id": r[13],
                     "students": students,
                 })
     return sessions

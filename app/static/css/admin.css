@@ -842,3 +842,55 @@
     background: rgba(255,255,255,0.25);
 }
 
+/* User table name/role column spacing */
+.user-table .name-cell {
+    padding-right: 6px;
+}
+.user-table .role-cell {
+    width: 1%;
+    white-space: nowrap;
+    padding-left: 6px;
+    padding-right: 8px;
+}
+
+/* Role change popup */
+.badge-clickable {
+    cursor: pointer;
+}
+.badge-clickable:hover {
+    filter: brightness(0.9);
+}
+
+.role-change-popup {
+    position: fixed;
+    z-index: 1000;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    padding: 4px 0;
+    min-width: 180px;
+}
+
+.role-change-popup button {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    text-align: left;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    color: #333;
+}
+
+.role-change-popup button:hover {
+    background: #f0f4ff;
+}
+
+.role-change-popup button.active-role {
+    font-weight: 600;
+    color: #2563eb;
+}
+
+

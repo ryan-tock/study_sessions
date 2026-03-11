@@ -43,6 +43,31 @@ def get_user_profile(student_id: int) -> dict:
     return {"first_name": "", "last_name": "", "discord_id": None, "sharing": "common_class", "dark_mode": False}
 
 
+ROLE_HIERARCHY = ['graduated', 'user', 'study_session_coordinator', 'scholarship_chair', 'bca_scholarship', 'root']
+ROLE_DISPLAY = {
+    'graduated': 'Graduate',
+    'user': 'User',
+    'study_session_coordinator': 'Study Session Coordinator',
+    'scholarship_chair': 'Scholarship Chair',
+    'bca_scholarship': 'BCA Scholarship',
+    'root': 'Root',
+}
+# Roles that grant admin portal access
+ADMIN_ROLES = {'study_session_coordinator', 'scholarship_chair', 'bca_scholarship'}
+# All valid role values that can be assigned via set_role (excludes 'root', managed via is_root)
+ASSIGNABLE_ROLES = {'graduated', 'user', 'study_session_coordinator', 'scholarship_chair', 'bca_scholarship'}
+
+
+def role_level(role) -> int:
+    """Return the privilege level of a role (0 = regular user, higher = more privileged)."""
+    if role is None:
+        return 0
+    try:
+        return ROLE_HIERARCHY.index(role) + 1
+    except ValueError:
+        return 0
+
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 AVATAR_DIR = os.path.join(current_dir, "static", "avatars")
 DATA_DIR = os.path.join(current_dir, "..", "data")

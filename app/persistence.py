@@ -55,8 +55,9 @@ def backup() -> str:
         with conn.cursor() as cur:
             # Static user rows
             cur.execute("""
-                SELECT s.student_id, s.first_name, s.last_name, s.discord_id, sa.is_admin,
-                       sa.hashed_password, sa.last_login, s.graduated_date, s.sharing
+                SELECT s.student_id, s.first_name, s.last_name, s.discord_id, sa.role,
+                       sa.hashed_password, sa.last_login, s.sharing, s.dark_mode,
+                       (sa.last_seen_term).academic_year, (sa.last_seen_term).season
                 FROM students s
                 JOIN student_auth sa ON s.student_id = sa.student_id
                 WHERE sa.is_root = FALSE
@@ -66,7 +67,7 @@ def backup() -> str:
 
             # Tutor capabilities (static, term-independent)
             cur.execute("""
-                SELECT s.student_id, c.department, c.identifier, t.confidence
+                SELECT s.student_id, c.department, c.identifier, t.confidence, t.sharing
                 FROM tutors t
                 JOIN students s ON t.student_id = s.student_id
                 JOIN courses c ON t.course_id = c.course_id
@@ -79,6 +80,7 @@ def backup() -> str:
                     'department': r[1],
                     'identifier': r[2],
                     'confidence': r[3],
+                    'sharing': str(r[4]),
                 })
 
             # Determine current term
@@ -110,7 +112,7 @@ def backup() -> str:
             # All exams
             cur.execute("""
                 SELECT c.department, c.identifier, e.test_date, e.exam_type,
-                       e.confirmed, e.disputed, e.deleted
+                       e.confirmed, e.disputed, e.deleted, e.skipped
                 FROM exams e
                 JOIN courses c ON e.course_id = c.course_id
                 ORDER BY e.test_date, c.department, c.identifier
@@ -120,7 +122,8 @@ def backup() -> str:
             # All courses
             cur.execute("""
                 SELECT department, identifier, title, semester_hours,
-                       (last_offered).academic_year, (last_offered).season
+                       (last_offered).academic_year, (last_offered).season,
+                       no_tutor_needed, no_tutor_pending
                 FROM courses
                 ORDER BY (last_offered).academic_year, (last_offered).season, department, identifier
             """)
@@ -147,17 +150,23 @@ def backup() -> str:
             """)
             session_rows = cur.fetchall()
 
+            # Confidence decay log
+            cur.execute("SELECT academic_year, season FROM confidence_decay_log")
+            decay_rows = cur.fetchall()
+
     # ── Static users ──────────────────────────────────────────────────────────
     users = [
         {
             'first_name': r[1],
             'last_name': r[2],
             'discord_id': r[3],
-            'is_admin': bool(r[4]),
+            'role': r[4],
             'hashed_password': r[5],
             'last_login': r[6].isoformat() if r[6] else None,
-            'graduated_date': r[7].isoformat() if r[7] else None,
-            'sharing': str(r[8]),
+            'sharing': str(r[7]),
+            'dark_mode': r[8],
+            'last_seen_term_year': int(r[9]) if r[9] else None,
+            'last_seen_term_season': str(r[10]) if r[10] else None,
             'tutor_capabilities': tutors_by_id.get(r[0], []),
         }
         for r in user_rows
@@ -177,6 +186,14 @@ def backup() -> str:
     with open(os.path.join(backup_dir, 'course_links.json'), 'w') as f:
         json.dump(links_data, f, indent=2)
 
+    # ── Confidence decay log (term-independent, stored in backup root) ────────
+    decay_data = [
+        {'academic_year': int(r[0]), 'season': str(r[1])}
+        for r in decay_rows
+    ]
+    with open(os.path.join(backup_dir, 'confidence_decay_log.json'), 'w') as f:
+        json.dump(decay_data, f, indent=2)
+
     # ── Group exams and courses by term ───────────────────────────────────────
     exams_by_term: dict[tuple, list] = {}
     for r in exam_rows:
@@ -190,17 +207,20 @@ def backup() -> str:
             'confirmed': r[4],
             'disputed': r[5],
             'deleted': r[6],
+            'skipped': r[7],
         })
 
     courses_by_term: dict[tuple, list] = {}
     for r in course_rows:
-        dept, ident, title, sem_hours, c_year, c_season = r
+        dept, ident, title, sem_hours, c_year, c_season, no_tutor, no_tutor_pend = r
         key = (int(c_year), str(c_season))
         courses_by_term.setdefault(key, []).append({
             'department': dept,
             'identifier': ident,
             'title': title,
             'semester_hours': sem_hours,
+            'no_tutor_needed': no_tutor,
+            'no_tutor_pending': no_tutor_pend,
         })
 
     sessions_by_term: dict[tuple, list] = {}
@@ -359,6 +379,7 @@ def _wipe_for_restore(user: dict) -> None:
             cur.execute("DELETE FROM tutors")
             cur.execute("DELETE FROM exams")
             cur.execute("DELETE FROM course_links")
+            cur.execute("DELETE FROM confidence_decay_log")
             # Delete non-root students (cascades to their student_auth rows)
             cur.execute("""
                 DELETE FROM students
@@ -381,7 +402,7 @@ _RESTORE_PDF_FILES = [
 
 def _restore_exam_entry(cur, dept: str, ident: str, date: str, exam_type: str, creator_id: int,
                         confirmed: bool = True, disputed: bool = False,
-                        deleted: bool = False) -> bool:
+                        deleted: bool = False, skipped: bool = False) -> bool:
     """Look up course by dept+ident and insert exam. Returns True if inserted."""
     cur.execute(
         """SELECT course_id FROM courses
@@ -398,10 +419,10 @@ def _restore_exam_entry(cur, dept: str, ident: str, date: str, exam_type: str, c
     if not row:
         return False
     cur.execute(
-        """INSERT INTO exams (course_id, test_date, exam_type, creator_id, confirmed, disputed, deleted)
-           VALUES (%s, %s::date, %s::exam_type, %s, %s, %s, %s)
+        """INSERT INTO exams (course_id, test_date, exam_type, creator_id, confirmed, disputed, deleted, skipped)
+           VALUES (%s, %s::date, %s::exam_type, %s, %s, %s, %s, %s)
            ON CONFLICT (course_id, test_date, exam_type) WHERE NOT deleted DO NOTHING""",
-        (row[0], date, exam_type, creator_id, confirmed, disputed, deleted)
+        (row[0], date, exam_type, creator_id, confirmed, disputed, deleted, skipped)
     )
     return cur.rowcount > 0
 
@@ -482,8 +503,9 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                     courses = json.load(f)
                 for c in courses:
                     cur.execute(
-                        """INSERT INTO courses (department, identifier, title, semester_hours, last_offered)
-                           SELECT %s, %s, %s, %s, ROW(%s, %s)::academic_term
+                        """INSERT INTO courses (department, identifier, title, semester_hours, last_offered,
+                                               no_tutor_needed, no_tutor_pending)
+                           SELECT %s, %s, %s, %s, ROW(%s, %s)::academic_term, %s, %s
                            WHERE NOT EXISTS (
                                SELECT 1 FROM courses
                                WHERE department = %s AND identifier = %s
@@ -492,6 +514,7 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                            )""",
                         (c['department'], c['identifier'], c.get('title'), c.get('semester_hours'),
                          c_year, c_season,
+                         c.get('no_tutor_needed', False), c.get('no_tutor_pending', False),
                          c['department'], c['identifier'], c_year, c_season)
                     )
                     if cur.rowcount:
@@ -547,20 +570,30 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                     for u in users:
                         sharing = u.get('sharing') or 'open'
                         cur.execute(
-                            """INSERT INTO students (first_name, last_name, discord_id, graduated_date, sharing)
-                               VALUES (%s, %s, %s, %s::date, %s::sharing_setting) RETURNING student_id""",
-                            (u['first_name'], u.get('last_name'), u.get('discord_id'),
-                             u.get('graduated_date'), sharing)
+                            """INSERT INTO students (first_name, last_name, discord_id, sharing, dark_mode)
+                               VALUES (%s, %s, %s, %s::sharing_setting, %s) RETURNING student_id""",
+                            (u['first_name'], u.get('last_name'), u.get('discord_id'), sharing,
+                             u.get('dark_mode', False))
                         )
                         student_id = cur.fetchone()[0]
                         if u.get('discord_id'):
                             discord_id_to_student[u['discord_id']] = student_id
                         hashed_pw = u.get('hashed_password') or fallback_pw
+                        # Handle old backup format migrations:
+                        role = u.get('role')
+                        if role is None and u.get('is_admin'):
+                            role = 'scholarship_chair'
+                        elif role is None and u.get('graduated_date'):
+                            role = 'graduated'
+                        elif role is None:
+                            role = 'user'
+                        last_seen_year = u.get('last_seen_term_year')
+                        last_seen_season = u.get('last_seen_term_season')
+                        last_seen_term = f"({last_seen_year},{last_seen_season})" if last_seen_year and last_seen_season else None
                         cur.execute(
-                            """INSERT INTO student_auth (student_id, hashed_password, is_admin, last_login)
-                               VALUES (%s, %s, %s, %s::timestamptz)""",
-                            (student_id, hashed_pw, bool(u.get('is_admin', False)),
-                             u.get('last_login'))
+                            """INSERT INTO student_auth (student_id, hashed_password, role, last_login, last_seen_term)
+                               VALUES (%s, %s, %s, %s::timestamptz, %s::academic_term)""",
+                            (student_id, hashed_pw, role, u.get('last_login'), last_seen_term)
                         )
                         # Legacy: embedded enrollments in users.json
                         for enr in u.get('enrollments', []):
@@ -583,11 +616,12 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                             )
                             row = cur.fetchone()
                             if row:
+                                tut_sharing = tut.get('sharing', 'open')
                                 cur.execute(
-                                    """INSERT INTO tutors (student_id, course_id, confidence)
-                                       VALUES (%s, %s, %s)
+                                    """INSERT INTO tutors (student_id, course_id, confidence, sharing)
+                                       VALUES (%s, %s, %s, %s::sharing_setting)
                                        ON CONFLICT (student_id, course_id) DO NOTHING""",
-                                    (student_id, row[0], tut.get('confidence'))
+                                    (student_id, row[0], tut.get('confidence'), tut_sharing)
                                 )
                 conn.commit()
 
@@ -649,7 +683,7 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                         if _restore_exam_entry(cur, e['department'], e['identifier'],
                                                e['date'], e['exam_type'], user['student_id'],
                                                e.get('confirmed', True), e.get('disputed', False),
-                                               e.get('deleted', False)):
+                                               e.get('deleted', False), e.get('skipped', False)):
                             found_data = True
                 else:
                     for pdf_name, exam_type in _RESTORE_PDF_FILES:
@@ -750,7 +784,26 @@ def restore_from_disk(user: dict, backup_name: str | None = None) -> bool:
                             )
                 conn.commit()
 
-    # ── 7. Sync backup's term data back to data/{term}/ ───────────────────────
+    # ── 7. Restore confidence decay log ─────────────────────────────────────
+    decay_file = None
+    if users_file:
+        candidate = os.path.join(os.path.dirname(users_file), 'confidence_decay_log.json')
+        if os.path.exists(candidate):
+            decay_file = candidate
+    if decay_file:
+        with open(decay_file) as f:
+            decay_entries = json.load(f)
+        if decay_entries:
+            with get_db_for_user(user) as conn:
+                with conn.cursor() as cur:
+                    for entry in decay_entries:
+                        cur.execute(
+                            "INSERT INTO confidence_decay_log (academic_year, season) VALUES (%s, %s::term_season) ON CONFLICT DO NOTHING",
+                            (entry['academic_year'], entry['season'])
+                        )
+                conn.commit()
+
+    # ── 8. Sync backup's term data back to data/{term}/ ───────────────────────
     # After restore, overwrite the on-disk term dir with the backup's snapshot
     # so the filesystem reflects exactly what was restored.
     if bt_subdir and bt_name:

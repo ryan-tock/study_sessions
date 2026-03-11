@@ -68,7 +68,7 @@ async def login(
     # Create tokens
     access_token_expires = timedelta(minutes=30)
     access_token = create_access_token(
-        data={"sub": str(user["student_id"]), "is_admin": user["is_admin"], "is_root": user["is_root"], "is_first_login": user.get("is_first_login", False)},
+        data={"sub": str(user["student_id"]), "role": user.get("role"), "is_admin": user["is_admin"], "is_root": user["is_root"], "is_first_login": user.get("is_first_login", False)},
         expires_delta=access_token_expires
     )
     refresh_token = create_refresh_token(user["student_id"])

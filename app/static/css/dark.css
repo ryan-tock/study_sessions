@@ -145,8 +145,11 @@ body.dark .user-table-avatar-initials { background-color: #444; }
 /* Badges */
 body.dark .badge { opacity: 0.9; }
 body.dark .badge-root { background-color: #3e1a1a; color: #e0a0a0; }
+body.dark .badge-bca { background-color: #1a3e2a; color: #a0d0b0; }
 body.dark .badge-admin { background-color: #3e3a1a; color: #e0d0a0; }
+body.dark .badge-coordinator { background-color: #1a2a3e; color: #a0b8e0; }
 body.dark .badge-user { background-color: #333; color: #b0b0b0; }
+body.dark .badge-graduated { background-color: #1a3a1a; color: #90c090; }
 body.dark .badge-no-auth { background-color: #3e3a1a; color: #e0d0a0; }
 body.dark .badge-no-schedule { background-color: #3e1a2a; color: #e0a0b0; }
 body.dark .badge-skipped { background-color: #3e2a1a; color: #e0c0a0; }
@@ -320,6 +323,13 @@ body.dark .classmate-search-results { background-color: #242424; border-color: #
 body.dark .edit-user-section { border-color: #333; }
 body.dark .edit-user-section > label { color: #a0a0a0; }
 body.dark #edit-user-panel .wipe-actions { border-color: #333; }
+
+/* Role change popup */
+body.dark .role-change-popup { background: #2a2a2a; border-color: #444; }
+body.dark .role-change-popup button { color: #e0e0e0; }
+body.dark .role-change-popup button:hover { background: #333; }
+body.dark .role-change-popup button.active-role { color: #60a5fa; }
+
 
 /* Form subtitle & back links */
 body.dark .form-subtitle { color: #888; }

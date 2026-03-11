@@ -136,6 +136,8 @@ Links are managed from the exam view in the admin portal (click the link icon on
 - Student lists use `linked_course_ids()` (strong links only)
 - Students see sessions for their enrolled courses + sessions where they are the assigned tutor
 - Backed up to `sessions.json` in the term directory during backup and restored on restore
+- **Copy Ping** generates a Discord-formatted announcement: heading (`# DEPT101 (Title) Study session`), student pings, message body, and tutor mention (uses tutor's Discord ID when available)
+- **Copy Ping** text is computed on the fly from the session details (date, time, location, tutor, enrolled students) -- nothing is stored in the database.
 
 ## Dark Mode
 

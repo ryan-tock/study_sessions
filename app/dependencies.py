@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import HTTPException, Request, status
 from jose import ExpiredSignatureError, JWTError, jwt
 from .config import SECRET_KEY, ALGORITHM
+from .helpers import ADMIN_ROLES
 
 
 def get_current_user(request: Request) -> Optional[dict]:
@@ -15,10 +16,14 @@ def get_current_user(request: Request) -> Optional[dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         student_id = int(payload.get("sub"))
-        is_admin = payload.get("is_admin", False)
+        role = payload.get("role")
         is_root = payload.get("is_root", False)
+        # Migration: old tokens with is_admin=True but no role get scholarship_chair
+        if payload.get("is_admin", False) and role is None and not is_root:
+            role = 'scholarship_chair'
+        is_admin = role in ADMIN_ROLES or is_root
         is_first_login = payload.get("is_first_login", False)
-        return {"student_id": student_id, "is_admin": is_admin, "is_root": is_root, "is_first_login": is_first_login}
+        return {"student_id": student_id, "role": role, "is_admin": is_admin, "is_root": is_root, "is_first_login": is_first_login}
     except ExpiredSignatureError:
         return _try_refresh(request)
     except (JWTError, ValueError):
@@ -42,16 +47,18 @@ def _try_refresh(request: Request) -> Optional[dict]:
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT is_admin, is_root FROM student_auth WHERE student_id = %s",
+                "SELECT role, is_root FROM student_auth WHERE student_id = %s",
                 (student_id,)
             )
             row = cur.fetchone()
     if not row:
         return None
 
-    is_admin, is_root = row
+    role, is_root = row
+    is_admin = role in ADMIN_ROLES or is_root
     user = {
         "student_id": student_id,
+        "role": role,
         "is_admin": is_admin,
         "is_root": is_root,
         "is_first_login": False,
@@ -59,7 +66,7 @@ def _try_refresh(request: Request) -> Optional[dict]:
 
     # Generate new access token and store it on request state for middleware to set
     new_access_token = create_access_token(
-        data={"sub": str(student_id), "is_admin": is_admin, "is_root": is_root, "is_first_login": False},
+        data={"sub": str(student_id), "role": role, "is_admin": is_admin, "is_root": is_root, "is_first_login": False},
         expires_delta=timedelta(minutes=30),
     )
     request.state.new_access_token = new_access_token

@@ -507,3 +507,43 @@ class TestStudySessions:
     def test_unauthenticated_blocked(self, client):
         resp = client.get("/api/my/study_sessions")
         assert resp.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# Graduated user restrictions
+# ---------------------------------------------------------------------------
+
+class TestGraduatedRestrictions:
+    def test_graduated_cannot_add_enrollment(self, client):
+        resp = client.post("/api/my/enrollments", data={"course_id": 1},
+                           cookies=auth_cookies(role="graduated"))
+        assert resp.status_code == 403
+
+    def test_graduated_cannot_remove_enrollment(self, client):
+        resp = client.delete("/api/my/enrollments/1",
+                             cookies=auth_cookies(role="graduated"))
+        assert resp.status_code == 403
+
+    def test_graduated_classmates_returns_empty(self, client):
+        resp = client.get("/api/my/classmates",
+                          cookies=auth_cookies(role="graduated"))
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_graduated_search_students_returns_empty(self, client):
+        resp = client.get("/api/my/search_students?q=Alice",
+                          cookies=auth_cookies(role="graduated"))
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_regular_user_can_add_enrollment(self, client):
+        with patch("app.routes.user.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [(2026, "spring")]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.post("/api/my/enrollments", data={"course_id": 1},
+                               cookies=auth_cookies(role="user"))
+        assert resp.status_code == 200

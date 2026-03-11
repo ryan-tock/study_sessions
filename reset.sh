@@ -74,11 +74,11 @@ try:
         print(f"Using existing root student ID: {student_id}")
     
     cur.execute(
-        """INSERT INTO student_auth (student_id, hashed_password, is_admin, is_root)
-           VALUES (%s, %s, %s, %s)
+        """INSERT INTO student_auth (student_id, hashed_password, is_root)
+           VALUES (%s, %s, %s)
            ON CONFLICT (student_id)
-           DO UPDATE SET hashed_password = %s, is_admin = %s, is_root = %s""",
-        (student_id, hashed, True, True, hashed, True, True)
+           DO UPDATE SET hashed_password = %s, is_root = %s""",
+        (student_id, hashed, True, hashed, True)
     )
     
     conn.commit()

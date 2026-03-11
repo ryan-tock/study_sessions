@@ -12,10 +12,10 @@ ROOT = auth_cookies(student_id=1, is_admin=True, is_root=True)
 def _portal_db():
     """Return a mock get_db_for_user that provides plausible admin portal data."""
     conn = FakeConnection()
-    # users query
+    # users query: student_id, first_name, last_name, role, is_root, discord_id
     conn._cursor._fetchall_results = [
-        [(1, "Root", "Admin", True, True, None, None),
-         (2, "Alice", "Smith", False, False, None, "123456")]
+        [(1, "Root", "Admin", None, True, None),
+         (2, "Alice", "Smith", "scholarship_chair", False, "123456")]
     ]
     # current_term query
     conn._cursor._results = [(2026, "spring")]
@@ -40,8 +40,9 @@ class TestAdminPortal:
              patch("app.routes.admin.course_cache_exists", return_value=False), \
              patch("app.routes.admin._list_wipeble_terms", return_value=[]):
             conn = FakeConnection()
+            # student_id, first_name, last_name, role, is_root, discord_id
             conn._cursor._fetchall_results = [
-                [(1, "Root", "Admin", True, True, None, None)]
+                [(1, "Root", "Admin", None, True, None)]
             ]
             @contextmanager
             def dbu(user):
@@ -60,34 +61,105 @@ class TestAdminPortal:
         assert "Admin Portal" in resp.text
 
 
-class TestSetAdmin:
-    def test_promote_user(self, client):
+class TestSetRole:
+    def _db(self, is_root, current_role):
+        conn = FakeConnection()
+        conn._cursor._results = [(is_root, current_role)]
+        @contextmanager
+        def db():
+            yield conn
+        return db
+
+    def test_set_role_success(self, client):
         with patch("app.routes.admin.get_db") as mock_db:
-            conn = FakeConnection()
-            conn._cursor._results = [(False,)]  # not root
-            @contextmanager
-            def db():
-                yield conn
-            mock_db.side_effect = db
-            resp = client.post("/admin/set_admin", data={
-                "target_id": 2, "make_admin": True
-            }, cookies=ADMIN)
+            mock_db.side_effect = self._db(False, None)
+            resp = client.post("/admin/set_role", data={
+                "target_id": 2, "role": "study_session_coordinator"
+            }, cookies=ROOT)
         assert resp.status_code == 302
         assert "/admin/portal" in resp.headers["location"]
+        assert "message" not in resp.headers["location"]
+
+    def test_downgrade_to_user(self, client):
+        with patch("app.routes.admin.get_db") as mock_db:
+            mock_db.side_effect = self._db(False, "study_session_coordinator")
+            resp = client.post("/admin/set_role", data={
+                "target_id": 2, "role": "user"
+            }, cookies=ROOT)
+        assert resp.status_code == 302
+        assert "message" not in resp.headers["location"]
+
+    def test_empty_role_rejected(self, client):
+        resp = client.post("/admin/set_role", data={
+            "target_id": 2, "role": ""
+        }, cookies=ROOT)
+        assert resp.status_code == 400
 
     def test_cannot_modify_root(self, client):
         with patch("app.routes.admin.get_db") as mock_db:
-            conn = FakeConnection()
-            conn._cursor._results = [(True,)]  # is root
-            @contextmanager
-            def db():
-                yield conn
-            mock_db.side_effect = db
-            resp = client.post("/admin/set_admin", data={
-                "target_id": 1, "make_admin": False
-            }, cookies=ADMIN)
+            mock_db.side_effect = self._db(True, None)
+            resp = client.post("/admin/set_role", data={
+                "target_id": 1, "role": "user"
+            }, cookies=ROOT)
         assert resp.status_code == 302
         assert "Cannot" in resp.headers["location"]
+
+    def test_cannot_assign_role_above_self(self, client):
+        # scholarship_chair (level 2) cannot assign bca_scholarship (level 3)
+        sc_cookies = auth_cookies(student_id=1, role="scholarship_chair")
+        resp = client.post("/admin/set_role", data={
+            "target_id": 2, "role": "bca_scholarship"
+        }, cookies=sc_cookies)
+        assert resp.status_code == 302
+        assert "Cannot+assign" in resp.headers["location"]
+
+    def test_cannot_modify_higher_role_user(self, client):
+        # scholarship_chair cannot modify bca_scholarship user (target >= actor level)
+        sc_cookies = auth_cookies(student_id=1, role="scholarship_chair")
+        with patch("app.routes.admin.get_db") as mock_db:
+            mock_db.side_effect = self._db(False, "bca_scholarship")
+            resp = client.post("/admin/set_role", data={
+                "target_id": 2, "role": "user"
+            }, cookies=sc_cookies)
+        assert resp.status_code == 302
+        assert "Cannot+modify" in resp.headers["location"]
+
+    def test_can_assign_own_role_level(self, client):
+        # scholarship_chair can assign scholarship_chair (same level) to others
+        sc_cookies = auth_cookies(student_id=1, role="scholarship_chair")
+        with patch("app.routes.admin.get_db") as mock_db:
+            mock_db.side_effect = self._db(False, None)
+            resp = client.post("/admin/set_role", data={
+                "target_id": 2, "role": "scholarship_chair"
+            }, cookies=sc_cookies)
+        assert resp.status_code == 302
+        assert "message" not in resp.headers["location"]
+
+    def test_coordinator_cannot_assign_coordinator(self, client):
+        # study_session_coordinator cannot create more coordinators
+        coord_cookies = auth_cookies(student_id=1, role="study_session_coordinator")
+        resp = client.post("/admin/set_role", data={
+            "target_id": 2, "role": "study_session_coordinator"
+        }, cookies=coord_cookies)
+        assert resp.status_code == 302
+        assert "Coordinator" in resp.headers["location"]
+
+    def test_scholarship_chair_can_assign_own_role(self, client):
+        # scholarship_chair CAN assign scholarship_chair
+        sc_cookies = auth_cookies(student_id=1, role="scholarship_chair")
+        with patch("app.routes.admin.get_db") as mock_db:
+            mock_db.side_effect = self._db(False, None)
+            resp = client.post("/admin/set_role", data={
+                "target_id": 2, "role": "scholarship_chair"
+            }, cookies=sc_cookies)
+        assert resp.status_code == 302
+        assert "message" not in resp.headers["location"]
+
+    def test_invalid_role_rejected(self, client):
+        resp = client.post("/admin/set_role", data={
+            "target_id": 2, "role": "superuser"
+        }, cookies=ROOT)
+        assert resp.status_code == 400
 
 
 class TestEditUser:
@@ -270,35 +342,6 @@ class TestDeleteUser:
             mock_db.side_effect = db
             resp = client.post("/admin/delete_user",
                                data={"target_id": 99}, cookies=ADMIN)
-        assert resp.status_code == 302
-        assert "root" in resp.headers["location"].lower()
-
-
-class TestSetGraduated:
-    def test_graduate_user(self, client):
-        with patch("app.routes.admin.get_db_for_user") as mock_db:
-            conn = FakeConnection()
-            conn._cursor._results = [(False,)]  # not root
-            @contextmanager
-            def db(user):
-                yield conn
-            mock_db.side_effect = db
-            resp = client.post("/admin/set_graduated",
-                               data={"target_id": 2, "graduated": True},
-                               cookies=ADMIN)
-        assert resp.status_code == 302
-
-    def test_cannot_graduate_root(self, client):
-        with patch("app.routes.admin.get_db_for_user") as mock_db:
-            conn = FakeConnection()
-            conn._cursor._results = [(True,)]
-            @contextmanager
-            def db(user):
-                yield conn
-            mock_db.side_effect = db
-            resp = client.post("/admin/set_graduated",
-                               data={"target_id": 1, "graduated": True},
-                               cookies=ADMIN)
         assert resp.status_code == 302
         assert "root" in resp.headers["location"].lower()
 
@@ -685,7 +728,7 @@ class TestStudySessions:
                 (2026, "spring"),  # current_term
             ]
             conn._cursor._fetchall_results = [
-                [(5, "John", "Smith", 8, "CSCI", "200")],  # tutors (with course info)
+                [(5, "John", "Smith", 8, "CSCI", "200", "discord_tutor_5")],  # tutors (with course info + discord)
                 [(2, "Alice", "Jones", "123456"), (3, "Bob", "Brown", None)],  # students
             ]
             @contextmanager
@@ -699,6 +742,7 @@ class TestStudySessions:
         assert data["has_session"] is False
         assert len(data["tutors"]) == 1
         assert data["tutors"][0]["confidence"] == 8
+        assert data["tutors"][0]["discord_id"] == "discord_tutor_5"
         assert len(data["students"]) == 2
 
     def test_get_scheduling_details_not_found(self, client):
@@ -724,7 +768,7 @@ class TestStudySessions:
                 (2026, "spring"),
             ]
             conn._cursor._fetchall_results = [
-                [(5, "John", "Smith", 8, "CSCI", "200")],
+                [(5, "John", "Smith", 8, "CSCI", "200", None)],
                 [],
             ]
             @contextmanager
@@ -816,7 +860,7 @@ class TestStudySessions:
                 [(1, dt(2026, 3, 4, 15, 0, tzinfo=timezone.utc), "Study Room",
                   10, date(2026, 3, 5), "final", 20,
                   "CSCI", "200", "OOP",
-                  "John", "Smith", 5)],
+                  "John", "Smith", 5, "tutor_discord_999")],
                 [(2, "Alice", "Jones", "123456")],
             ]
             @contextmanager
@@ -831,6 +875,26 @@ class TestStudySessions:
         assert data[0]["tutor_first"] == "John"
         assert data[0]["location"] == "Study Room"
         assert len(data[0]["students"]) == 1
+
+    def test_list_study_sessions_has_tutor_discord(self, client):
+        from datetime import datetime as dt, date, timezone
+        with patch("app.routes.admin.get_db") as mock_db:
+            conn = FakeConnection()
+            conn._cursor._results = [(2026, "spring")]
+            conn._cursor._fetchall_results = [
+                [(1, dt(2026, 3, 4, 15, 0, tzinfo=timezone.utc), "Study Room",
+                  10, date(2026, 3, 5), "final", 20,
+                  "CSCI", "200", "OOP",
+                  "John", "Smith", 5, "tutor_discord_999")],
+                [(2, "Alice", "Jones", "123456")],
+            ]
+            @contextmanager
+            def db():
+                yield conn
+            mock_db.side_effect = db
+            resp = client.get("/admin/api/study_sessions", cookies=ADMIN)
+        data = resp.json()
+        assert data[0]["tutor_discord_id"] == "tutor_discord_999"
 
     def test_list_study_sessions_empty(self, client):
         with patch("app.routes.admin.get_db") as mock_db:
@@ -1150,8 +1214,8 @@ class TestCourseLinks:
             ]
             conn._cursor._fetchall_results = [
                 [
-                    (5, "John", "Smith", 8, "MATH", "213"),   # tutor from own course
-                    (6, "Jane", "Doe", 7, "MATH", "223"),     # tutor from linked course
+                    (5, "John", "Smith", 8, "MATH", "213", "discord_5"),   # tutor from own course
+                    (6, "Jane", "Doe", 7, "MATH", "223", "discord_6"),     # tutor from linked course
                 ],
                 [
                     (2, "Alice", "Jones", "111"),

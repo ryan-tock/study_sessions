@@ -208,6 +208,8 @@ async def get_my_enrollments(user: dict = Depends(require_auth)):
 @api_router.post("/api/my/enrollments")
 async def add_my_enrollment(user: dict = Depends(require_auth), course_id: int = Form(...)):
     """Add a course enrollment for the current term."""
+    if user.get("role") == "graduated":
+        raise HTTPException(403, "Graduates cannot modify enrollments")
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT academic_year, season FROM current_term")
@@ -230,6 +232,8 @@ async def add_my_enrollment(user: dict = Depends(require_auth), course_id: int =
 @api_router.delete("/api/my/enrollments/{course_id}")
 async def remove_my_enrollment(course_id: int, user: dict = Depends(require_auth)):
     """Remove all enrollments for a course."""
+    if user.get("role") == "graduated":
+        raise HTTPException(403, "Graduates cannot modify enrollments")
     with get_db_for_user(user) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -614,6 +618,8 @@ async def get_my_study_sessions(user: dict = Depends(require_auth)):
 @api_router.get("/api/my/classmates")
 async def get_my_classmates(user: dict = Depends(require_auth)):
     """Get students sharing classes with the current user (respects RLS sharing)."""
+    if user.get("role") == "graduated":
+        return []
     with get_db_for_user(user) as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -657,6 +663,8 @@ async def get_my_classmates(user: dict = Depends(require_auth)):
 @api_router.get("/api/my/search_students")
 async def search_students(q: str = "", user: dict = Depends(require_auth)):
     """Search for students by name (respects RLS sharing for enrollment visibility)."""
+    if user.get("role") == "graduated":
+        return []
     if len(q) < 2:
         return []
     with get_db_for_user(user) as conn:

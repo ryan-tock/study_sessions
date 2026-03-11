@@ -1,3 +1,15 @@
+        var _DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        var _MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+        // Format an ISO date string (YYYY-MM-DD) or Date object to "Wed, Jan 15"
+        function formatDate(d) {
+            if (typeof d === 'string') {
+                var parts = d.split('-');
+                d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            }
+            return _DAYS[d.getDay()] + ', ' + _MONTHS[d.getMonth()] + ' ' + d.getDate();
+        }
+
         window.dismissChecklist = function(btn) {
             btn.parentElement.classList.add('hidden');
             fetch('/admin/api/dismiss_checklist', { method: 'POST' }).catch(function() {});
@@ -22,6 +34,79 @@
 
         // ===== Populate import section term labels and status =====
         const _portalData = JSON.parse(document.getElementById('portal-data').textContent);
+
+        // ===== Role change popup =====
+        (function() {
+            var popup = document.getElementById('role-change-popup');
+            var _targetId = null, _currentRole = null, _name = null;
+
+            window.openRolePopup = function(event, studentId, currentRole, name) {
+                event.stopPropagation();
+                _targetId = studentId;
+                _currentRole = currentRole;
+                _name = name;
+
+                var roleOptions = (_portalData.role_options || []).filter(function(opt) {
+                    if (_portalData.current_user_role === 'study_session_coordinator') {
+                        return opt.level < _portalData.current_user_role_level;
+                    }
+                    return opt.level <= _portalData.current_user_role_level;
+                });
+
+                popup.innerHTML = roleOptions.map(function(opt) {
+                    var cls = opt.value === currentRole ? ' active-role' : '';
+                    return '<button type="button" class="' + cls + '" data-role="' + opt.value + '">' + opt.label + '</button>';
+                }).join('');
+
+                popup.querySelectorAll('button').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var newRole = btn.dataset.role;
+                        if (newRole === _currentRole) { closeRolePopup(); return; }
+                        var adminRoles = ['study_session_coordinator', 'scholarship_chair', 'bca_scholarship'];
+                        var isMajorChange = adminRoles.indexOf(newRole) !== -1 || adminRoles.indexOf(_currentRole) !== -1;
+                        if (isMajorChange && !confirm('Change role for ' + _name + ' to ' + btn.textContent.trim() + '?\n\nNote: they may need to log out and back in for changes to take effect.')) return;
+                        var form = document.createElement('form');
+                        form.method = 'POST';
+                        form.action = '/admin/set_role';
+                        var tid = document.createElement('input');
+                        tid.type = 'hidden'; tid.name = 'target_id'; tid.value = _targetId;
+                        var role = document.createElement('input');
+                        role.type = 'hidden'; role.name = 'role'; role.value = newRole;
+                        form.appendChild(tid);
+                        form.appendChild(role);
+                        document.body.appendChild(form);
+                        form.submit();
+                    });
+                });
+
+                var rect = event.currentTarget.getBoundingClientRect();
+                popup.classList.remove('hidden');
+                var popupWidth = popup.offsetWidth;
+                var popupHeight = popup.offsetHeight;
+                var left = rect.left;
+                if (left + popupWidth > window.innerWidth - 8) {
+                    left = window.innerWidth - popupWidth - 8;
+                }
+                if (left < 8) left = 8;
+                var top = rect.bottom + 4;
+                if (top + popupHeight > window.innerHeight - 8) {
+                    top = rect.top - popupHeight - 4;
+                }
+                popup.style.left = left + 'px';
+                popup.style.top = top + 'px';
+            };
+
+            function closeRolePopup() {
+                popup.classList.add('hidden');
+                _targetId = null;
+            }
+
+            document.addEventListener('click', function(e) {
+                if (!popup.classList.contains('hidden') && !popup.contains(e.target)) {
+                    closeRolePopup();
+                }
+            });
+        })();
         (function() {
             const ct = _portalData.current_term;
             const cts = _portalData.current_term_status || {};
@@ -600,8 +685,6 @@
         (async function() {
             const container = document.getElementById('exam-calendar-container');
             if (!container) return;
-            const MONTH_NAMES = ['January','February','March','April','May','June',
-                                 'July','August','September','October','November','December'];
             const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
             const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 
@@ -806,9 +889,6 @@
         (function() {
             const container = document.getElementById('upcoming-exams-container');
             if (!container) return;
-            const MONTH_NAMES = ['January','February','March','April','May','June',
-                                 'July','August','September','October','November','December'];
-
             function examTypeBadge(type) {
                 if (type === 'final') return { cls: 'assessment-type-final', label: 'Final' };
                 if (type === 'common_hour') return { cls: 'assessment-type-common', label: 'Common Hour' };
@@ -846,10 +926,9 @@
                     let lastDate = null;
                     for (const e of upcoming) {
                         if (e.date !== lastDate) {
-                            const [y, mo, d] = e.date.split('-').map(Number);
                             const dateLabel = document.createElement('div');
                             dateLabel.className = 'upcoming-exams-date';
-                            dateLabel.textContent = MONTH_NAMES[mo - 1] + ' ' + d + ', ' + y;
+                            dateLabel.textContent = formatDate(e.date);
                             list.appendChild(dateLabel);
                             lastDate = e.date;
                         }
@@ -1224,7 +1303,7 @@
                                     '<span class="backup-item-date">' +
                                         '<span class="assessment-type-badge ' + needsTypeCls + '">Needs Session</span> ' +
                                         a.department + ' ' + a.identifier + alsoCovers + ' \u2014 ' + typeLabel + '</span>' +
-                                    '<span class="backup-item-count">Exam on ' + a.test_date + '</span>' +
+                                    '<span class="backup-item-count">Exam on ' + formatDate(a.test_date) + '</span>' +
                                 '</div>' +
                                 '<div class="backup-item-actions">' +
                                     '<button type="button" class="btn-action btn-elevate needs-session-btn" data-id="' + a.exam_id + '">Schedule</button>' +
@@ -1238,12 +1317,12 @@
                             reviewBadge = '<span class="assessment-type-badge assessment-type-final">Disputed Final</span>';
                             confirmLabel = 'Delete Final';
                             revertLabel = 'Restore';
-                            detailText = a.test_date;
+                            detailText = formatDate(a.test_date);
                         } else {
                             reviewBadge = '<span class="assessment-type-badge assessment-type-test">New Report</span>';
                             confirmLabel = 'Confirm';
                             revertLabel = 'Reject';
-                            detailText = a.test_date + ' \u00b7 Reported by ' + reporter;
+                            detailText = formatDate(a.test_date) + ' \u00b7 Reported by ' + reporter;
                         }
                         return '<div class="backup-item">' +
                             '<div class="backup-item-info">' +
@@ -1270,6 +1349,7 @@
                     container.querySelectorAll('.pending-revert-btn').forEach(function(btn) {
                         btn.addEventListener('click', function() { revertAssessment(parseInt(btn.dataset.id, 10), btn); });
                     });
+
                 } catch (e) {
                     container.innerHTML = '<p style="color:#e74c3c;font-size:13px;">Failed to load pending reports.</p>';
                 }
@@ -1672,7 +1752,7 @@
                                 statusBadge +
                                 a.department + ' ' + a.identifier + (a.title ? ' \u2014 ' + a.title : '') +
                             '</span>' +
-                            '<span class="backup-item-count">' + a.test_date + '</span>' +
+                            '<span class="backup-item-count">' + formatDate(a.test_date) + '</span>' +
                         '</div>' +
                         '<div class="backup-item-actions">' + actionBtn + '</div>' +
                     '</div>');
@@ -1824,6 +1904,39 @@
             document.addEventListener('no-tutor-changed', loadPending);
         })();
 
+        // ===== Study Session Ping Helpers =====
+        function buildFallbackBody(tutorName, tutorDiscordId, datetime, location) {
+            var dtObj = new Date(datetime);
+            var timeStr = dtObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            var dateStr = dtObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+            var tutorMention = tutorDiscordId ? '<@' + tutorDiscordId + '>' : tutorName;
+            var text = 'Study session on **' + dateStr + '** at **' + timeStr + '** in **' + location + '**.';
+            if (tutorName && tutorName !== 'TBD') {
+                text += ' ' + tutorMention + ' will be there to tutor.';
+            }
+            return text;
+        }
+
+        function buildPingHeader(exam, students) {
+            var courseName = exam.department + exam.identifier;
+            var titlePart = exam.title ? ' (' + exam.title + ')' : '';
+            var text = '# ' + courseName + titlePart + ' Study session\n';
+
+            var withDiscord = students.filter(function(s) { return s.discord_id; });
+            if (withDiscord.length) {
+                text += withDiscord.map(function(s) { return '<@' + s.discord_id + '>'; }).join(' ') + '\n';
+            }
+            return text;
+        }
+
+        function buildPingFooter(students) {
+            var withoutDiscord = students.filter(function(s) { return !s.discord_id; });
+            if (withoutDiscord.length) {
+                return '\n*Also notify (no Discord): ' + withoutDiscord.map(function(s) { return s.first_name + ' ' + s.last_name; }).join(', ') + '*\n';
+            }
+            return '';
+        }
+
         // ===== Study Session Scheduling Modal =====
         (function() {
             var _scheduleData = null;
@@ -1832,12 +1945,9 @@
                 var panel = document.getElementById('schedule-session-panel');
                 var backdrop = document.getElementById('schedule-session-backdrop');
                 var errorEl = document.getElementById('schedule-error');
-                var pingOutput = document.getElementById('schedule-ping-output');
                 var submitBtn = document.getElementById('schedule-submit-btn');
 
                 errorEl.classList.add('hidden');
-                pingOutput.classList.add('hidden');
-                submitBtn.style.display = '';
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Schedule';
                 document.getElementById('schedule-session-id').value = '';
@@ -1864,7 +1974,7 @@
                     var examInfoHtml =
                         '<strong>' + exam.department + exam.identifier + '</strong> ' + typeLabel +
                         (exam.title ? ' \u2014 ' + exam.title : '') +
-                        '<br><span style="color:#888;font-size:13px;">Exam date: ' + exam.test_date + '</span>';
+                        '<br><span style="color:#888;font-size:13px;">Exam date: ' + formatDate(exam.test_date) + '</span>';
                     if (data.linked_courses && data.linked_courses.length) {
                         var strongLinks = data.linked_courses.filter(function(c) { return c.link_type === 'strong'; });
                         var weakLinks = data.linked_courses.filter(function(c) { return c.link_type === 'weak'; });
@@ -1879,9 +1989,22 @@
                     }
                     document.getElementById('schedule-exam-info').innerHTML = examInfoHtml;
 
-                    if (data.has_session) {
-                        errorEl.textContent = 'A study session already exists for this exam.';
+                    if (data.has_session && data.existing_session_id) {
+                        errorEl.innerHTML = 'A study session already exists for this exam. <a href="#" class="delete-existing-session" data-session-id="' +
+                            data.existing_session_id + '" style="color:var(--danger-color,#c0392b);text-decoration:underline;cursor:pointer;">Delete it</a>';
                         errorEl.classList.remove('hidden');
+                        errorEl.querySelector('.delete-existing-session').addEventListener('click', async function(ev) {
+                            ev.preventDefault();
+                            var sid = this.dataset.sessionId;
+                            if (!confirm('Delete the existing session so you can create a new one?')) return;
+                            var delRes = await fetch('/admin/api/study_sessions/' + sid, { method: 'DELETE' });
+                            if (delRes.ok) {
+                                errorEl.classList.add('hidden');
+                                document.dispatchEvent(new CustomEvent('sessions-changed'));
+                            } else {
+                                errorEl.textContent = 'Failed to delete existing session.';
+                            }
+                        });
                     }
 
                     var tutorSelect = document.getElementById('schedule-tutor-select');
@@ -1939,7 +2062,6 @@
                 await openScheduleModal(session.exam_id);
                 document.getElementById('schedule-session-id').value = session.session_id;
                 document.getElementById('schedule-submit-btn').textContent = 'Save';
-                document.querySelector('.wipe-panel-title', document.getElementById('schedule-session-panel'));
                 // Pre-fill tutor
                 if (session.tutor_id) {
                     document.getElementById('schedule-tutor-select').value = session.tutor_id;
@@ -1961,32 +2083,6 @@
                 // Hide "session already exists" warning for edits
                 document.getElementById('schedule-error').classList.add('hidden');
             };
-
-            function buildPingText(exam, tutorName, datetime, location, students) {
-                var dtObj = new Date(datetime);
-                var dateStr = dtObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                var timeStr = dtObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-
-                var typeLabel = exam.exam_type === 'final' ? 'Final' :
-                                exam.exam_type === 'common_hour' ? 'Common Hour' :
-                                exam.exam_type === 'quiz' ? 'Quiz' : 'In-Class Test';
-
-                var text = '\uD83D\uDCDA Study Session: ' + exam.department + exam.identifier + ' ' + typeLabel + '\n';
-                text += '\uD83E\uDDD1\u200D\uD83C\uDFEB Tutor: ' + tutorName + '\n';
-                text += '\uD83D\uDCC5 ' + dateStr + ' at ' + timeStr + '\n';
-                text += '\uD83D\uDCCD Location: ' + location + '\n';
-
-                var withDiscord = students.filter(function(s) { return s.discord_id; });
-                var withoutDiscord = students.filter(function(s) { return !s.discord_id; });
-
-                if (withDiscord.length) {
-                    text += '\n' + withDiscord.map(function(s) { return '<@' + s.discord_id + '>'; }).join(' ') + '\n';
-                }
-                if (withoutDiscord.length) {
-                    text += '\nAlso notify (no Discord): ' + withoutDiscord.map(function(s) { return s.first_name + ' ' + s.last_name; }).join(', ') + '\n';
-                }
-                return text;
-            }
 
             document.getElementById('schedule-submit-btn').addEventListener('click', async function() {
                 var examId = document.getElementById('schedule-exam-id').value;
@@ -2028,21 +2124,7 @@
                         throw new Error(data.detail || (isEdit ? 'Failed to update session' : 'Failed to create session'));
                     }
 
-                    var exam = _scheduleData.exam;
-                    var tutor = null;
-                    for (var i = 0; i < _scheduleData.tutors.length; i++) {
-                        if (_scheduleData.tutors[i].student_id === parseInt(tutorId)) {
-                            tutor = _scheduleData.tutors[i];
-                            break;
-                        }
-                    }
-                    var tutorName = tutor ? tutor.first_name + ' ' + tutor.last_name : 'TBD';
-
-                    var pingText = buildPingText(exam, tutorName, datetime, location, _scheduleData.students || []);
-                    document.getElementById('schedule-ping-text').value = pingText;
-                    document.getElementById('schedule-ping-output').classList.remove('hidden');
-                    submitBtn.style.display = 'none';
-
+                    closeScheduleModal();
                     document.dispatchEvent(new CustomEvent('sessions-changed'));
                     document.dispatchEvent(new CustomEvent('exams-changed'));
                 } catch (err) {
@@ -2053,27 +2135,6 @@
                 }
             });
 
-            document.getElementById('schedule-copy-btn').addEventListener('click', function() {
-                var text = document.getElementById('schedule-ping-text').value;
-                var btn = document.getElementById('schedule-copy-btn');
-
-                function fallbackCopy() {
-                    var textarea = document.getElementById('schedule-ping-text');
-                    textarea.select();
-                    document.execCommand('copy');
-                    btn.textContent = 'Copied!';
-                    setTimeout(function() { btn.textContent = 'Copy to Clipboard'; }, 2000);
-                }
-
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(text).then(function() {
-                        btn.textContent = 'Copied!';
-                        setTimeout(function() { btn.textContent = 'Copy to Clipboard'; }, 2000);
-                    }).catch(fallbackCopy);
-                } else {
-                    fallbackCopy();
-                }
-            });
         })();
 
         // ===== Scheduled Sessions =====
@@ -2091,29 +2152,17 @@
 
             function formatTimestamp(iso) {
                 var dt = new Date(iso);
-                return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                    + ' at ' + dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                return formatDate(dt) + ' at ' + dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
             }
 
             function generatePingText(s) {
-                var typeLabel = s.exam_type === 'final' ? 'Final' :
-                                s.exam_type === 'common_hour' ? 'Common Hour' :
-                                s.exam_type === 'quiz' ? 'Quiz' : 'In-Class Test';
-                var text = '\uD83D\uDCDA Study Session: ' + s.department + s.identifier + ' ' + typeLabel + '\n';
-                text += '\uD83E\uDDD1\u200D\uD83C\uDFEB Tutor: ' + (s.tutor_first ? s.tutor_first + ' ' + s.tutor_last : 'TBD') + '\n';
-                text += '\uD83D\uDCC5 ' + formatTimestamp(s.session_timestamp) + '\n';
-                text += '\uD83D\uDCCD Location: ' + s.location + '\n';
-
-                var withDiscord = (s.students || []).filter(function(st) { return st.discord_id; });
-                var withoutDiscord = (s.students || []).filter(function(st) { return !st.discord_id; });
-
-                if (withDiscord.length) {
-                    text += '\n' + withDiscord.map(function(st) { return '<@' + st.discord_id + '>'; }).join(' ') + '\n';
-                }
-                if (withoutDiscord.length) {
-                    text += '\nAlso notify (no Discord): ' + withoutDiscord.map(function(st) { return st.first_name + ' ' + st.last_name; }).join(', ') + '\n';
-                }
-                return text;
+                var exam = { department: s.department, identifier: s.identifier, title: s.title };
+                var students = s.students || [];
+                var header = buildPingHeader(exam, students);
+                var footer = buildPingFooter(students);
+                var tutorName = s.tutor_first ? s.tutor_first + ' ' + s.tutor_last : 'TBD';
+                var body = buildFallbackBody(tutorName, s.tutor_discord_id, s.session_timestamp, s.location);
+                return (header + '\n' + body + '\n' + footer).trimEnd();
             }
 
             async function loadSessions() {

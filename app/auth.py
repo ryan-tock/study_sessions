@@ -6,6 +6,7 @@ import uuid
 import secrets
 from .database import get_db
 from .config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from .helpers import ADMIN_ROLES
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -94,7 +95,7 @@ def authenticate_root_user(password: str) -> Optional[dict]:
             cur.execute("SELECT student_id, hashed_password FROM student_auth WHERE is_root = TRUE")
             for student_id, hashed_password in cur.fetchall():
                 if verify_password(password, hashed_password):
-                    return {"student_id": student_id, "is_admin": True, "is_root": True}
+                    return {"student_id": student_id, "role": None, "is_admin": True, "is_root": True}
     return None
 
 
@@ -103,7 +104,7 @@ def authenticate_user(first_name: str, last_name: str, password: str) -> Optiona
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT s.student_id, sa.hashed_password, sa.is_admin, sa.is_root, sa.last_login
+                """SELECT s.student_id, sa.hashed_password, sa.role, sa.is_root, sa.last_login
                    FROM students s
                    JOIN student_auth sa ON s.student_id = sa.student_id
                    WHERE s.first_name = %s AND COALESCE(s.last_name, '') = %s""",
@@ -112,10 +113,10 @@ def authenticate_user(first_name: str, last_name: str, password: str) -> Optiona
             result = cur.fetchone()
             if not result:
                 return None
-            student_id, hashed_password, is_admin, is_root, last_login = result
+            student_id, hashed_password, role, is_root, last_login = result
             if not verify_password(password, hashed_password):
                 return None
             is_first_login = last_login is None
             cur.execute("UPDATE student_auth SET last_login = NOW() WHERE student_id = %s", (student_id,))
             conn.commit()
-            return {"student_id": student_id, "is_admin": is_admin, "is_root": is_root, "is_first_login": is_first_login}
+            return {"student_id": student_id, "role": role, "is_admin": role in ADMIN_ROLES or is_root, "is_root": is_root, "is_first_login": is_first_login}

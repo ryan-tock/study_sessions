@@ -26,12 +26,14 @@ DROP TYPE IF EXISTS academic_term CASCADE;
 DROP TYPE IF EXISTS term_season CASCADE;
 DROP TYPE IF EXISTS exam_type CASCADE;
 DROP TYPE IF EXISTS link_type CASCADE;
+DROP TYPE IF EXISTS user_role CASCADE;
 
 CREATE TYPE sharing_setting AS ENUM('closed', 'common_class', 'open');
 CREATE TYPE term_season AS ENUM('spring', 'fall');
 CREATE TYPE academic_term AS (academic_year SMALLINT, season term_season);
 CREATE TYPE exam_type AS ENUM('in_class', 'quiz', 'common_hour', 'final');
 CREATE TYPE link_type AS ENUM('strong', 'weak');
+CREATE TYPE user_role AS ENUM('graduated', 'user', 'study_session_coordinator', 'scholarship_chair', 'bca_scholarship');
 
 -- RLS helper: returns current user's student_id, or NULL if not set
 CREATE FUNCTION current_user_id() RETURNS integer AS $$
@@ -113,7 +115,6 @@ CREATE TABLE students (
     first_name TEXT,
     last_name TEXT,
     sharing sharing_setting NOT NULL DEFAULT 'open',
-    graduated_date DATE,  -- Null for undergraduate
     avatar_checked_at TIMESTAMPTZ,
     dark_mode BOOLEAN NOT NULL DEFAULT FALSE
 );
@@ -127,7 +128,7 @@ CREATE POLICY students_update ON students FOR UPDATE
     WITH CHECK (is_admin() OR student_id = current_user_id());
 CREATE POLICY students_delete ON students FOR DELETE USING (is_admin());
 
-CREATE VIEW student_overviews AS SELECT student_id, first_name, last_name, graduated_date FROM students;
+CREATE VIEW student_overviews AS SELECT student_id, first_name, last_name FROM students;
 
 CREATE TABLE exams (
     exam_id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
@@ -289,7 +290,7 @@ CREATE POLICY study_sessions_delete ON study_sessions FOR DELETE USING (is_admin
 CREATE TABLE student_auth (
     student_id INTEGER PRIMARY KEY REFERENCES students(student_id) ON DELETE CASCADE,
     hashed_password TEXT NOT NULL,
-    is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    role user_role DEFAULT NULL,
     is_root BOOLEAN NOT NULL DEFAULT FALSE,
     last_login TIMESTAMPTZ,
     last_seen_term academic_term

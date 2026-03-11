@@ -44,7 +44,7 @@
             {% endif %}
 
             <div id="schedule-session-backdrop" class="wipe-backdrop hidden" onclick="closeScheduleModal()"></div>
-            <div id="schedule-session-panel" class="wipe-panel hidden" style="min-width:480px;max-width:560px;">
+            <div id="schedule-session-panel" class="wipe-panel hidden" style="min-width:560px;max-width:700px;max-height:90vh;overflow-y:auto;">
                 <p class="wipe-panel-title" style="color:#2c3e50;">Schedule Study Session</p>
                 <input type="hidden" id="schedule-exam-id">
                 <input type="hidden" id="schedule-session-id">
@@ -65,12 +65,6 @@
                 </div>
                 <div id="schedule-students-preview" style="margin-bottom:14px;"></div>
                 <p id="schedule-error" class="exam-preview-error hidden" style="margin-bottom:12px;"></p>
-                <div id="schedule-ping-output" class="hidden" style="margin-bottom:14px;">
-                    <label>Discord Notification</label>
-                    <textarea id="schedule-ping-text" readonly rows="8"
-                        style="width:100%;font-family:monospace;font-size:13px;padding:10px;border:1px solid #ddd;border-radius:4px;resize:vertical;box-sizing:border-box;"></textarea>
-                    <button type="button" id="schedule-copy-btn" class="btn-action btn-elevate" style="margin-top:6px;">Copy to Clipboard</button>
-                </div>
                 <div class="wipe-actions">
                     <button type="button" id="schedule-submit-btn" class="btn-action btn-elevate">Schedule</button>
                     <button type="button" class="btn-action" onclick="closeScheduleModal()">Close</button>
@@ -109,6 +103,8 @@
                     <button type="button" class="btn-action" onclick="closeLinkModal()">Close</button>
                 </div>
             </div>
+
+            <div id="role-change-popup" class="role-change-popup hidden"></div>
 
             <div id="edit-user-backdrop" class="wipe-backdrop hidden" onclick="closeEditModal()"></div>
             <div id="edit-user-panel" class="wipe-panel hidden" style="max-width:720px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;">
@@ -316,18 +312,16 @@
                 <table class="user-table">
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Role</th>
-                            <th></th>
-                            <th></th>
+                            <th class="name-cell">Name</th>
+                            <th class="role-cell"></th>
                             <th></th>
                             <th></th>
                         </tr>
                     </thead>
                     <tbody id="user-table-body">
                         {% for u in users %}
-                        <tr data-graduated="{{ 'true' if u.graduated_date else 'false' }}" data-student-id="{{ u.student_id }}">
-                            <td>
+                        <tr data-graduated="{{ 'true' if u.role == 'graduated' else 'false' }}" data-student-id="{{ u.student_id }}">
+                            <td class="name-cell">
                                 <div class="user-table-name-cell">
                                     <div class="user-table-avatar">
                                         {% if u.discord_id %}
@@ -339,48 +333,32 @@
                                         <div class="user-table-avatar-initials">{{ ((u.first_name or '?')[0] ~ (u.last_name or '')[0:1])|upper }}</div>
                                     </div>
                                     {{ u.first_name }} {{ u.last_name }}
-                                    {% if not u.is_root and not u.graduated_date and not u.has_schedule %}
+                                    {% if not u.is_root and u.role != 'graduated' and not u.has_schedule %}
                                     <span class="badge badge-no-schedule">No Schedule</span>
                                     {% endif %}
                                 </div>
                             </td>
-                            <td>
+                            <td class="role-cell">
+                                {% set can_change = not u.is_root and u.has_login and u.role_level <= current_user_role_level %}
                                 {% if u.is_root %}
                                     <span class="badge badge-root">Root</span>
-                                {% elif u.is_admin %}
-                                    <span class="badge badge-admin">Admin</span>
-                                {% elif u.is_admin is not none %}
-                                    <span class="badge badge-user">User</span>
+                                {% elif u.role == 'bca_scholarship' %}
+                                    <span class="badge badge-bca{% if can_change %} badge-clickable{% endif %}"
+                                          {% if can_change %}onclick="openRolePopup(event, {{ u.student_id }}, '{{ u.role }}', '{{ u.first_name }} {{ u.last_name }}')"{% endif %}>BCA Scholarship</span>
+                                {% elif u.role == 'scholarship_chair' %}
+                                    <span class="badge badge-admin{% if can_change %} badge-clickable{% endif %}"
+                                          {% if can_change %}onclick="openRolePopup(event, {{ u.student_id }}, '{{ u.role }}', '{{ u.first_name }} {{ u.last_name }}')"{% endif %}>Scholarship Chair</span>
+                                {% elif u.role == 'study_session_coordinator' %}
+                                    <span class="badge badge-coordinator{% if can_change %} badge-clickable{% endif %}"
+                                          {% if can_change %}onclick="openRolePopup(event, {{ u.student_id }}, '{{ u.role }}', '{{ u.first_name }} {{ u.last_name }}')"{% endif %}>Study Session Coordinator</span>
+                                {% elif u.role == 'graduated' %}
+                                    <span class="badge badge-graduated{% if can_change %} badge-clickable{% endif %}"
+                                          {% if can_change %}onclick="openRolePopup(event, {{ u.student_id }}, '{{ u.role }}', '{{ u.first_name }} {{ u.last_name }}')"{% endif %}>Graduate</span>
+                                {% elif u.has_login %}
+                                    <span class="badge badge-user{% if can_change %} badge-clickable{% endif %}"
+                                          {% if can_change %}onclick="openRolePopup(event, {{ u.student_id }}, '{{ u.role }}', '{{ u.first_name }} {{ u.last_name }}')"{% endif %}>User</span>
                                 {% else %}
                                     <span class="badge badge-no-auth">No Login</span>
-                                {% endif %}
-                            </td>
-                            <td class="action-cell">
-                                {% if u.is_admin and not u.is_root %}
-                                    <form method="POST" action="/admin/set_admin"
-                                          onsubmit="return confirm('Demote {{ u.first_name }} {{ u.last_name }}?\n\nNote: they will retain admin access for up to 30 minutes until their session expires.')">
-                                        <input type="hidden" name="target_id" value="{{ u.student_id }}">
-                                        <input type="hidden" name="make_admin" value="false">
-                                        <button type="submit" class="btn-action btn-demote">Demote</button>
-                                    </form>
-                                {% elif u.is_admin is not none and not u.is_root %}
-                                    <form method="POST" action="/admin/set_admin"
-                                          onsubmit="return confirm('Make {{ u.first_name }} {{ u.last_name }} an admin?\n\nNote: they may need to log out and back in for changes to take effect.')">
-                                        <input type="hidden" name="target_id" value="{{ u.student_id }}">
-                                        <input type="hidden" name="make_admin" value="true">
-                                        <button type="submit" class="btn-action btn-elevate">Make Admin</button>
-                                    </form>
-                                {% endif %}
-                            </td>
-                            <td class="action-cell">
-                                {% if not u.is_root %}
-                                <form method="POST" action="/admin/set_graduated">
-                                    <input type="hidden" name="target_id" value="{{ u.student_id }}">
-                                    <input type="hidden" name="graduated" value="{{ 'false' if u.graduated_date else 'true' }}">
-                                    <button type="submit" class="btn-action btn-graduate">
-                                        {{ 'Unmark Graduate' if u.graduated_date else 'Mark Graduate' }}
-                                    </button>
-                                </form>
                                 {% endif %}
                             </td>
                             <td class="action-cell">
@@ -410,7 +388,7 @@
             <p class="support-note">Experiencing bugs? Email: <a href="mailto:scholarship@r71.org">scholarship@r71.org</a></p>
         </div>
     </div>
-    <script type="application/json" id="portal-data">{{ {"current_term": current_term, "current_term_status": current_term_status, "wipe_terms": wipe_terms} | tojson }}</script>
+    <script type="application/json" id="portal-data">{{ {"current_term": current_term, "current_term_status": current_term_status, "wipe_terms": wipe_terms, "role_options": role_options, "current_user_role_level": current_user_role_level, "current_user_role": current_user_role} | tojson }}</script>
     <script src="/static/js/admin_portal.js"></script>
 </body>
 </html>
