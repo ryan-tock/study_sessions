@@ -3,9 +3,11 @@ import os
 import ssl
 import urllib.error
 import urllib.request
+from datetime import datetime
 from difflib import SequenceMatcher as _SM
 from typing import Optional
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 import certifi
@@ -22,6 +24,20 @@ from ..course_scraper import cache_exists as course_cache_exists
 from .discord import download_and_cache_avatar, validate_discord_id
 
 router = APIRouter()
+
+MOUNTAIN_TZ = ZoneInfo("America/Denver")
+
+
+def _localize_timestamp(raw: str) -> str:
+    """Interpret a naive datetime string as Mountain Time and return an ISO
+    string with the correct UTC offset so PostgreSQL stores it accurately."""
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return raw
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=MOUNTAIN_TZ)
+    return dt.isoformat()
 
 
 def _list_wipeble_terms() -> list[dict]:
@@ -955,7 +971,7 @@ async def create_study_session(
                     INSERT INTO study_sessions (tutor_student_id, exam_id, session_timestamp, location)
                     VALUES (%s, %s, %s::timestamptz, %s)
                     RETURNING session_id
-                """, (tutor_student_id, exam_id, session_timestamp, location))
+                """, (tutor_student_id, exam_id, _localize_timestamp(session_timestamp), location))
                 session_id = cur.fetchone()[0]
             except Exception:
                 conn.rollback()
@@ -1059,7 +1075,7 @@ async def update_study_session(
                 UPDATE study_sessions
                 SET tutor_student_id = %s, session_timestamp = %s::timestamptz, location = %s
                 WHERE session_id = %s
-            """, (tutor_student_id, session_timestamp, location, session_id))
+            """, (tutor_student_id, _localize_timestamp(session_timestamp), location, session_id))
         conn.commit()
     return {"ok": True}
 

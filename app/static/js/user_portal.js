@@ -691,12 +691,9 @@ function escHtml(str) {
                         s.exam_type === 'common_hour' ? 'assessment-type-common' :
                         s.exam_type === 'quiz' ? 'assessment-type-quiz' : 'assessment-type-test';
                     var dt = new Date(s.session_timestamp);
-                    var dateStr = formatDate(dt);
-                    var hours = dt.getHours();
-                    var ampm = hours >= 12 ? 'PM' : 'AM';
-                    hours = hours % 12 || 12;
-                    var mins = String(dt.getMinutes()).padStart(2, '0');
-                    var timeStr = hours + ':' + mins + ' ' + ampm;
+                    var dateParts = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/Denver' });
+                    var dateStr = dateParts;
+                    var timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Denver' });
                     var tutorStr = s.is_tutor ? 'You are tutoring' :
                         s.tutor_first ? 'Tutor: ' + escHtml(s.tutor_first) + ' ' + escHtml(s.tutor_last) : 'No tutor assigned';
                     var tutorCls = 'study-session-tutor' + (s.is_tutor ? ' is-tutor' : '');

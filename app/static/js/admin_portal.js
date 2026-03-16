@@ -1907,8 +1907,8 @@
         // ===== Study Session Ping Helpers =====
         function buildFallbackBody(tutorName, tutorDiscordId, datetime, location) {
             var dtObj = new Date(datetime);
-            var timeStr = dtObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-            var dateStr = dtObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+            var timeStr = dtObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Denver' });
+            var dateStr = dtObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/Denver' });
             var tutorMention = tutorDiscordId ? '<@' + tutorDiscordId + '>' : tutorName;
             var text = 'Study session on **' + dateStr + '** at **' + timeStr + '** in **' + location + '**.';
             if (tutorName && tutorName !== 'TBD') {
@@ -2069,11 +2069,12 @@
                 // Pre-fill datetime
                 if (session.session_timestamp) {
                     var dt = new Date(session.session_timestamp);
-                    var dtLocal = dt.getFullYear() + '-' +
-                        String(dt.getMonth() + 1).padStart(2, '0') + '-' +
-                        String(dt.getDate()).padStart(2, '0') + 'T' +
-                        String(dt.getHours()).padStart(2, '0') + ':' +
-                        String(dt.getMinutes()).padStart(2, '0');
+                    var mtn = new Date(dt.toLocaleString('en-US', { timeZone: 'America/Denver' }));
+                    var dtLocal = mtn.getFullYear() + '-' +
+                        String(mtn.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(mtn.getDate()).padStart(2, '0') + 'T' +
+                        String(mtn.getHours()).padStart(2, '0') + ':' +
+                        String(mtn.getMinutes()).padStart(2, '0');
                     document.getElementById('schedule-datetime').value = dtLocal;
                 }
                 // Pre-fill location
@@ -2152,7 +2153,9 @@
 
             function formatTimestamp(iso) {
                 var dt = new Date(iso);
-                return formatDate(dt) + ' at ' + dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                var dateParts = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/Denver' });
+                var timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Denver' });
+                return dateParts + ' at ' + timeStr;
             }
 
             function generatePingText(s) {
